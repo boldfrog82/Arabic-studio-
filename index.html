@@ -139,7 +139,8 @@
     <label>Voice engine</label>
     <select id="engine" style="margin-bottom:12px;">
       <option value="gemini">🎭 Gemini AI — best acting &amp; emotions (needs free key, small quota)</option>
-      <option value="free">🆓 OpenAI voices — unlimited &amp; free, no key needed</option>
+      <option value="puter">⭐ OpenAI voices via Puter — free &amp; reliable (sign in once, no card)</option>
+      <option value="free">🆓 OpenAI voices via Pollinations — no sign-in, but often busy</option>
     </select>
 
     <div class="speaker-config">
@@ -232,7 +233,7 @@
     <div class="hint">
       • <b>Expressive speech:</b> write emotion hints inside the text, like: <i>(laughing) No way!</i> or <i dir="rtl">[مستعجل] اركب بسرعة</i> — the AI acts them. Both ( ) and [ ] work.<br>
       • <b>Arabic:</b> just type Arabic text, it works.<br>
-      • <b>Two engines:</b> Gemini acts emotions best but has a small free quota. The free OpenAI voices are unlimited, speak Arabic well, and also act [مستعجل] emotion tags — great for testing and often good enough for final audio.<br>
+      • <b>Three engines:</b> ⭐ Puter is the recommended free one — reliable OpenAI voices that act [مستعجل] emotion tags; it asks you to create a free account once (no card). Gemini acts emotions best but has a small daily quota. Pollinations needs nothing but is often busy.<br>
       • <b>Effects</b> (robot, ghost, kid...) are applied on your device after the AI speaks, so they are 100% free.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
       • <b>Quota saving:</b> already-generated lines are skipped, three different models are tried automatically (each has its own free limit), and 💰 ONE-request mode makes the whole conversation for the price of a single line.<br>
@@ -336,16 +337,16 @@ fillSelect($("s1fx"), EFFECTS, "none");
 fillSelect($("s2fx"), EFFECTS, "none");
 
 function applyEngine(initial) {
-  const free = $("engine").value === "free";
-  fillSelect($("s1voice"), free ? FREE_VOICES : VOICES, free ? "echo" : "Fenrir");
-  fillSelect($("s2voice"), free ? FREE_VOICES : VOICES, free ? "onyx" : "Puck");
+  const openaiVoices = $("engine").value === "free" || $("engine").value === "puter";
+  fillSelect($("s1voice"), openaiVoices ? FREE_VOICES : VOICES, openaiVoices ? "echo" : "Fenrir");
+  fillSelect($("s2voice"), openaiVoices ? FREE_VOICES : VOICES, openaiVoices ? "onyx" : "Puck");
   if (!initial)
     for (const div of linesEl.children)
       if (div._raw) setLineState(div, "stale", "engine changed — regenerate");
   lsSet("gvs_engine", $("engine").value);
 }
 const storedEngine = lsGet("gvs_engine");
-$("engine").value = storedEngine === "free" || storedEngine === "gemini" ? storedEngine : "gemini";
+$("engine").value = ["free", "gemini", "puter"].includes(storedEngine) ? storedEngine : "gemini";
 $("engine").addEventListener("change", () => applyEngine(false));
 applyEngine(true);
 
@@ -623,6 +624,40 @@ async function freeTTS(text, voice, onStatus) {
   throw new Error("Free voice server is overloaded right now — wait a minute and try again, or switch to the Gemini engine.");
 }
 
+/* ============================================================
+   OpenAI voices via Puter.js — free for the user, sign in once.
+   ============================================================ */
+let puterLoading = null;
+function loadPuter() {
+  if (window.puter) return Promise.resolve();
+  if (puterLoading) return puterLoading;
+  puterLoading = new Promise((ok, bad) => {
+    const s = document.createElement("script");
+    s.src = "https://js.puter.com/v2/";
+    s.onload = ok;
+    s.onerror = () => { puterLoading = null; bad(new Error("Could not load Puter — check your internet and try again.")); };
+    document.head.appendChild(s);
+  });
+  return puterLoading;
+}
+
+async function puterTTS(text, voice, stylePrompt) {
+  await loadPuter();
+  const instructions =
+    ((stylePrompt || "").trim() + "\n" +
+     "Words in [brackets] or (parentheses) are emotion directions — act them with your voice but never say them aloud.").trim();
+  let audio;
+  try {
+    audio = await puter.ai.txt2speech(text, {
+      provider: "openai", model: "gpt-4o-mini-tts", voice, instructions
+    });
+  } catch (e) {
+    throw new Error("Puter voice error: " + (e && e.message ? e.message : "sign-in window may have been blocked — allow popups and press Generate again."));
+  }
+  const res = await fetch(audio.src);
+  return await audioCtx.decodeAudioData(await res.arrayBuffer());
+}
+
 /* Gemini returns 16-bit PCM mono (usually 24000 Hz) */
 function pcmBase64ToBuffer(b64, mime) {
   const rateMatch = /rate=(\d+)/.exec(mime);
@@ -804,8 +839,11 @@ async function generateLine(div) {
   const voice = $(sp === "1" ? "s1voice" : "s2voice").value;
   const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
   setLineState(div, "busy", "⏳ generating...");
-  if ($("engine").value === "free") {
+  const engine = $("engine").value;
+  if (engine === "free") {
     div._raw = await freeTTS(text, voice, msg => setLineState(div, "busy", msg));
+  } else if (engine === "puter") {
+    div._raw = await puterTTS(text, voice, $("stylePrompt").value);
   } else {
     div._raw = await ttsRequest(text, voice, $("stylePrompt").value);
   }
@@ -851,8 +889,8 @@ $("genAll").onclick = async () => {
    Both AI voices act together; per-line MP3s and voice effects are not
    available in this mode (the audio comes back as one piece). */
 $("genOne").onclick = async () => {
-  if ($("engine").value === "free") {
-    setStatus("ok", "The free OpenAI voices are unlimited — no need to save quota. Just press 🎙️ Generate all voices.");
+  if ($("engine").value !== "gemini") {
+    setStatus("ok", "This engine has no small quota — just press 🎙️ Generate all voices.");
     return;
   }
   const divs = [...linesEl.children];
