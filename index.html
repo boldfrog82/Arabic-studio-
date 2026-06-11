@@ -443,7 +443,11 @@ function fileNameFor(div) {
 async function ttsRequest(text, voiceName, stylePrompt) {
   const key = $("apiKey").value.trim();
   if (!key) throw new Error("Paste your free API key first (step 1).");
-  const prompt = (stylePrompt ? stylePrompt.trim() + "\nSay this line: " : "") + text;
+  const prompt =
+    (stylePrompt ? stylePrompt.trim() + "\n" : "") +
+    "Words between [brackets] or (parentheses) are acting directions describing the emotion and HOW to say the line — " +
+    "perform them with your voice but NEVER read those bracketed words aloud.\n" +
+    "Say this line: " + text;
   let lastErr = "";
   for (const model of TTS_MODELS) {
     const res = await fetch(
