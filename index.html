@@ -643,12 +643,17 @@ function loadPuter() {
 
 async function puterTTS(text, voice, stylePrompt) {
   await loadPuter();
+  // pull [emotion] tags out of the text so they are acted, never read aloud
+  const tags = [];
+  const clean = text.replace(/\[([^\]]+)\]|\(([^)]+)\)/g, (m, a, b) => { tags.push(a || b); return " "; })
+                    .replace(/ +/g, " ").trim() || text;
   const instructions =
     ((stylePrompt || "").trim() + "\n" +
-     "Words in [brackets] or (parentheses) are emotion directions — act them with your voice but never say them aloud.").trim();
+     (tags.length ? "Act this line with these emotions: " + tags.join(", ") + ".\n" : "") +
+     "Be very expressive and theatrical.").trim();
   let audio;
   try {
-    audio = await puter.ai.txt2speech(text, {
+    audio = await puter.ai.txt2speech(clean, {
       provider: "openai", model: "gpt-4o-mini-tts", voice, instructions
     });
   } catch (e) {
