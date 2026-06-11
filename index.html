@@ -49,6 +49,7 @@
     font-family: inherit;
   }
   textarea { resize: none; min-height: 60px; overflow-y: hidden; }
+  input[type=range] { width: 100%; accent-color: var(--accent2); }
   select { cursor: pointer; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 140px; }
@@ -149,6 +150,10 @@
           <label>Voice effect 🎭</label>
           <select id="s1fx"></select>
         </div>
+        <div>
+          <label>Effect strength: <span id="s1amtv">60</span>%</label>
+          <input type="range" id="s1amt" min="0" max="100" value="60">
+        </div>
       </div>
     </div>
 
@@ -165,6 +170,10 @@
         <div>
           <label>Voice effect 🎭</label>
           <select id="s2fx"></select>
+        </div>
+        <div>
+          <label>Effect strength: <span id="s2amtv">60</span>%</label>
+          <input type="range" id="s2amt" min="0" max="100" value="60">
         </div>
       </div>
     </div>
@@ -413,12 +422,54 @@ $("importScript").onclick = () => {
   $("pasteBox").style.display = "none";
   setStatus("ok", `✓ Imported ${parsed.length} lines for ${names.join(" + ")}. Now press 🎙️ Generate all voices.`);
 };
-// invalidate single lines when voice/effect changes
-for (const id of ["s1voice","s2voice","s1fx","s2fx"]) {
+// changing the AI base voice needs a new generation (API call)
+for (const id of ["s1voice","s2voice"]) {
   $(id).addEventListener("change", () => {
     const sp = id[1]; // "1" or "2"
     for (const div of linesEl.children)
-      if (div.dataset.speaker === sp && div._buffer) setLineState(div, "stale", "settings changed — regenerate");
+      if (div.dataset.speaker === sp && div._buffer) setLineState(div, "stale", "voice changed — regenerate");
+  });
+}
+
+/* ---------- effects re-apply instantly on the device, no API call ---------- */
+function effectStrength(sp) {
+  return parseInt($(sp === "1" ? "s1amt" : "s2amt").value, 10) / 100;
+}
+let reapplyBusy = false;
+async function reapplySpeaker(sp) {
+  if (reapplyBusy) return;
+  reapplyBusy = true;
+  try {
+    const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
+    const s = effectStrength(sp);
+    let n = 0;
+    for (const div of [...linesEl.children]) {
+      if (div.dataset.speaker !== sp || !div._raw) continue;
+      setLineState(div, "busy", "⏳ applying effect...");
+      div._buffer = await applyEffect(div._raw, fx, s);
+      const a = div.querySelector("audio");
+      a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
+      a.style.display = "block";
+      div.querySelector(".play").disabled = false;
+      div.querySelector(".dl").disabled = false;
+      setLineState(div, "ok", "✓ ready");
+      n++;
+    }
+    invalidateConversation();
+    if (n) setStatus("ok", `✓ Effect updated on ${n} line(s) — free, no AI call. Press ▶ to hear it.`);
+  } finally {
+    reapplyBusy = false;
+  }
+}
+const reapplyTimers = {};
+for (const id of ["s1fx", "s2fx"]) {
+  $(id).addEventListener("change", () => reapplySpeaker(id[1]).catch(e => setStatus("err", e.message)));
+}
+for (const id of ["s1amt", "s2amt"]) {
+  $(id).addEventListener("input", () => {
+    $(id + "v").textContent = $(id).value;
+    clearTimeout(reapplyTimers[id]);
+    reapplyTimers[id] = setTimeout(() => reapplySpeaker(id[1]).catch(e => setStatus("err", e.message)), 350);
   });
 }
 
@@ -535,48 +586,52 @@ async function renderFx(buffer, tailSec, build) {
   return await ctx.startRendering();
 }
 
-async function applyEffect(buffer, fx) {
+async function applyEffect(buffer, fx, s = 0.6) {
+  // s = effect strength 0..1 (slider). L(a,b) slides from "no effect" to "maximum".
+  const L = (a, b) => a + (b - a) * s;
+  if (s <= 0) return buffer;
   switch (fx) {
     case "none": return buffer;
 
-    case "kid": return pitchShift(buffer, 1.32);
-    case "chipmunk": return pitchShift(buffer, 1.65);
-    case "man": return pitchShift(buffer, 0.82);
+    case "kid": return pitchShift(buffer, L(1, 1.55));
+    case "chipmunk": return pitchShift(buffer, L(1, 2.1));
+    case "man": return pitchShift(buffer, L(1, 0.68));
 
     case "monster": {
-      const low = pitchShift(buffer, 0.62);
+      const low = pitchShift(buffer, L(1, 0.55));
       return renderFx(low, 0.3, (ctx, src) => {
         const dist = ctx.createWaveShaper();
+        const drive = L(1, 4);
         const curve = new Float32Array(256);
-        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(2.5 * x); }
+        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(drive * x); }
         dist.curve = curve;
         src.connect(dist).connect(ctx.destination);
       });
     }
 
     case "robot":
+      // keeps the real voice mixed in so the words stay clear
       return renderFx(buffer, 0.1, (ctx, src) => {
+        const dry = ctx.createGain(); dry.gain.value = L(1, 0.45);
+        src.connect(dry).connect(ctx.destination);
         const ring = ctx.createGain(); ring.gain.value = 0;
-        const osc = ctx.createOscillator(); osc.type = "square"; osc.frequency.value = 42;
-        const oscGain = ctx.createGain(); oscGain.gain.value = 0.5;
-        const base = ctx.createGain(); base.gain.value = 0.5;
+        const osc = ctx.createOscillator(); osc.type = "square"; osc.frequency.value = 50;
+        const oscGain = ctx.createGain(); oscGain.gain.value = L(0, 0.9);
         osc.connect(oscGain).connect(ring.gain);
-        const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1700; bp.Q.value = 0.6;
-        src.connect(ring); src.connect(base);
-        ring.connect(bp); base.connect(bp);
-        bp.connect(ctx.destination);
+        const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1600; bp.Q.value = 0.4;
+        src.connect(ring).connect(bp).connect(ctx.destination);
         osc.start();
       });
 
     case "ghost": {
-      const low = pitchShift(buffer, 0.88);
+      const low = pitchShift(buffer, L(1, 0.8));
       return renderFx(low, 2.2, (ctx, src) => {
         const conv = ctx.createConvolver(); conv.buffer = makeImpulse(ctx, 2.4, 3.2);
-        const wet = ctx.createGain(); wet.gain.value = 0.85;
-        const dry = ctx.createGain(); dry.gain.value = 0.45;
-        const trem = ctx.createGain(); trem.gain.value = 0.75;
+        const wet = ctx.createGain(); wet.gain.value = L(0, 1.2);
+        const dry = ctx.createGain(); dry.gain.value = L(1, 0.4);
+        const trem = ctx.createGain(); trem.gain.value = 1 - 0.3 * s;
         const lfo = ctx.createOscillator(); lfo.frequency.value = 5.3;
-        const lfoG = ctx.createGain(); lfoG.gain.value = 0.25;
+        const lfoG = ctx.createGain(); lfoG.gain.value = 0.35 * s;
         lfo.connect(lfoG).connect(trem.gain);
         src.connect(trem);
         trem.connect(dry).connect(ctx.destination);
@@ -586,15 +641,15 @@ async function applyEffect(buffer, fx) {
     }
 
     case "alien": {
-      const hi = pitchShift(buffer, 1.18);
+      const hi = pitchShift(buffer, L(1, 1.3));
       return renderFx(hi, 0.2, (ctx, src) => {
         const ring = ctx.createGain(); ring.gain.value = 0;
         const osc = ctx.createOscillator(); osc.type = "sine"; osc.frequency.value = 90;
         const lfo = ctx.createOscillator(); lfo.frequency.value = 3;
         const lfoG = ctx.createGain(); lfoG.gain.value = 55;
         lfo.connect(lfoG).connect(osc.frequency);
-        const oscGain = ctx.createGain(); oscGain.gain.value = 0.6;
-        const base = ctx.createGain(); base.gain.value = 0.4;
+        const oscGain = ctx.createGain(); oscGain.gain.value = L(0, 0.9);
+        const base = ctx.createGain(); base.gain.value = L(1, 0.35);
         osc.connect(oscGain).connect(ring.gain);
         src.connect(ring).connect(ctx.destination);
         src.connect(base).connect(ctx.destination);
@@ -604,27 +659,28 @@ async function applyEffect(buffer, fx) {
 
     case "radio":
       return renderFx(buffer, 0.1, (ctx, src) => {
-        const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 500;
-        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2800;
+        const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = L(50, 700);
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = L(8000, 2500);
         const dist = ctx.createWaveShaper();
+        const drive = L(1, 6);
         const curve = new Float32Array(256);
-        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(4 * x) * 0.8; }
+        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(drive * x) * 0.8; }
         dist.curve = curve;
         src.connect(hp).connect(lp).connect(dist).connect(ctx.destination);
       });
 
     case "phone":
       return renderFx(buffer, 0.1, (ctx, src) => {
-        const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 300;
-        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 3400;
+        const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = L(50, 400);
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = L(8000, 3000);
         src.connect(hp).connect(lp).connect(ctx.destination);
       });
 
     case "cave":
       return renderFx(buffer, 1.6, (ctx, src) => {
         const delay = ctx.createDelay(1); delay.delayTime.value = 0.28;
-        const fb = ctx.createGain(); fb.gain.value = 0.42;
-        const wet = ctx.createGain(); wet.gain.value = 0.5;
+        const fb = ctx.createGain(); fb.gain.value = L(0, 0.55);
+        const wet = ctx.createGain(); wet.gain.value = L(0, 0.8);
         src.connect(ctx.destination);
         src.connect(delay);
         delay.connect(fb).connect(delay);
@@ -633,10 +689,10 @@ async function applyEffect(buffer, fx) {
 
     case "underwater":
       return renderFx(buffer, 0.3, (ctx, src) => {
-        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 600; lp.Q.value = 1.2;
-        const trem = ctx.createGain(); trem.gain.value = 0.8;
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = L(4000, 550); lp.Q.value = 1.2;
+        const trem = ctx.createGain(); trem.gain.value = 1 - 0.2 * s;
         const lfo = ctx.createOscillator(); lfo.frequency.value = 2.2;
-        const lfoG = ctx.createGain(); lfoG.gain.value = 0.2;
+        const lfoG = ctx.createGain(); lfoG.gain.value = 0.25 * s;
         lfo.connect(lfoG).connect(trem.gain);
         src.connect(lp).connect(trem).connect(ctx.destination);
         lfo.start();
@@ -656,9 +712,9 @@ async function generateLine(div) {
   const voice = $(sp === "1" ? "s1voice" : "s2voice").value;
   const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
   setLineState(div, "busy", "⏳ generating...");
-  const raw = await ttsRequest(text, voice, $("stylePrompt").value);
+  div._raw = await ttsRequest(text, voice, $("stylePrompt").value);
   setLineState(div, "busy", "⏳ applying effect...");
-  div._buffer = await applyEffect(raw, fx);
+  div._buffer = await applyEffect(div._raw, fx, effectStrength(sp));
   setLineState(div, "ok", "✓ ready");
   div.querySelector(".play").disabled = false;
   div.querySelector(".dl").disabled = false;
@@ -687,11 +743,20 @@ $("genAll").onclick = async () => {
   }
 };
 
+function buildConversation() {
+  const divs = [...linesEl.children];
+  if (divs.length && divs.every(d => d._buffer))
+    return concatBuffers(divs.map(d => d._buffer), parseInt($("gapMs").value));
+  return null;
+}
+$("gapMs").addEventListener("change", invalidateConversation);
 $("playAll").onclick = () => {
+  if (!conversationBuffer) conversationBuffer = buildConversation();
   if (!conversationBuffer) { setStatus("err", "First press 🎙️ Generate all voices (step 1 needs your free API key)."); return; }
   playBuffer(conversationBuffer);
 };
 $("dlAll").onclick = () => {
+  if (!conversationBuffer) conversationBuffer = buildConversation();
   if (!conversationBuffer) { setStatus("err", "First press 🎙️ Generate all voices (step 1 needs your free API key)."); return; }
   downloadBuffer(conversationBuffer, "conversation");
 };
