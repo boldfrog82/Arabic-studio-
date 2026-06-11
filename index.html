@@ -434,6 +434,10 @@ function addLine(speaker, text = "") {
       <button class="ghostbtn small play" disabled>▶ Play</button>
       <button class="ghostbtn small dl" disabled>⬇ MP3</button>
     </div>
+    <div class="line-top" style="margin-top:8px;">
+      <select class="linefx"></select>
+      <input type="range" class="lineamt" min="0" max="100" value="60" style="flex:1;min-width:90px;">
+    </div>
     <audio controls style="display:none"></audio>
   `;
   const ta = div.querySelector("textarea");
@@ -445,6 +449,14 @@ function addLine(speaker, text = "") {
   div.querySelector(".gen").onclick = () => generateLine(div).catch(e => setLineState(div, "err", e.message));
   div.querySelector(".rec").onclick = () => toggleRecord(div, div.querySelector(".rec"));
   div.querySelector(".play").onclick = () => playBuffer(div._buffer);
+  const fxSel = div.querySelector(".linefx");
+  fillSelect(fxSel, [["inherit", "🎭 Use character's effect"], ...EFFECTS], "inherit");
+  fxSel.addEventListener("change", () => reapplyLine(div).catch(e => setLineState(div, "err", e.message)));
+  let lineFxTimer;
+  div.querySelector(".lineamt").addEventListener("input", () => {
+    clearTimeout(lineFxTimer);
+    lineFxTimer = setTimeout(() => reapplyLine(div).catch(e => setLineState(div, "err", e.message)), 350);
+  });
   div.querySelector(".dl").onclick = () => downloadBuffer(div._buffer, fileNameFor(div));
   div.querySelector("textarea").addEventListener("input", () => setLineState(div, "stale", "edited — regenerate"));
   linesEl.appendChild(div);
@@ -525,6 +537,29 @@ function customFx(sp) {
   };
 }
 
+/* per-line voice changer: the line's own select wins over the character setting */
+function lineFxParams(div) {
+  const sp = div.dataset.speaker;
+  const sel = div.querySelector(".linefx").value;
+  if (sel === "inherit")
+    return { fx: $(sp === "1" ? "s1fx" : "s2fx").value, s: effectStrength(sp), custom: customFx(sp) };
+  return { fx: sel, s: parseInt(div.querySelector(".lineamt").value, 10) / 100, custom: null };
+}
+function readyMsg(div) { return div._rec ? "✓ ready (your voice)" : "✓ ready"; }
+async function reapplyLine(div) {
+  if (!div._raw) return;
+  const p = lineFxParams(div);
+  setLineState(div, "busy", "⏳ applying effect...");
+  div._buffer = await applyEffect(div._raw, p.fx, p.s, p.custom);
+  const a = div.querySelector("audio");
+  a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
+  a.style.display = "block";
+  div.querySelector(".play").disabled = false;
+  div.querySelector(".dl").disabled = false;
+  setLineState(div, "ok", readyMsg(div));
+  invalidateConversation();
+}
+
 /* ---------- record your own voice for a line ---------- */
 let activeRec = null;
 async function toggleRecord(div, btn) {
@@ -546,15 +581,8 @@ async function toggleRecord(div, btn) {
     try {
       setLineState(div, "busy", "⏳ processing recording...");
       div._raw = await audioCtx.decodeAudioData(await new Blob(chunks).arrayBuffer());
-      const sp = div.dataset.speaker;
-      div._buffer = await applyEffect(div._raw, $(sp === "1" ? "s1fx" : "s2fx").value, effectStrength(sp), customFx(sp));
-      setLineState(div, "ok", "✓ ready (your voice)");
-      div.querySelector(".play").disabled = false;
-      div.querySelector(".dl").disabled = false;
-      const a = div.querySelector("audio");
-      a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
-      a.style.display = "block";
-      invalidateConversation();
+      div._rec = true;
+      await reapplyLine(div);
     } catch (e) {
       setLineState(div, "err", "recording failed: " + e.message);
     }
@@ -575,6 +603,7 @@ async function reapplySpeaker(sp) {
     let n = 0;
     for (const div of [...linesEl.children]) {
       if (div.dataset.speaker !== sp || !div._raw) continue;
+      if (div.querySelector(".linefx").value !== "inherit") continue; // line has its own effect
       setLineState(div, "busy", "⏳ applying effect...");
       div._buffer = await applyEffect(div._raw, fx, s, custom);
       const a = div.querySelector("audio");
@@ -582,7 +611,7 @@ async function reapplySpeaker(sp) {
       a.style.display = "block";
       div.querySelector(".play").disabled = false;
       div.querySelector(".dl").disabled = false;
-      setLineState(div, "ok", "✓ ready");
+      setLineState(div, "ok", readyMsg(div));
       n++;
     }
     invalidateConversation();
@@ -1021,7 +1050,6 @@ async function generateLine(div) {
   if (!text) throw new Error("empty text");
   const sp = div.dataset.speaker;
   const voice = $(sp === "1" ? "s1voice" : "s2voice").value;
-  const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
   setLineState(div, "busy", "⏳ generating...");
   const engine = $("engine").value;
   if (engine === "free") {
@@ -1031,14 +1059,8 @@ async function generateLine(div) {
   } else {
     div._raw = await ttsRequest(text, voice, $("stylePrompt").value);
   }
-  setLineState(div, "busy", "⏳ applying effect...");
-  div._buffer = await applyEffect(div._raw, fx, effectStrength(sp), customFx(sp));
-  setLineState(div, "ok", "✓ ready");
-  div.querySelector(".play").disabled = false;
-  div.querySelector(".dl").disabled = false;
-  const a = div.querySelector("audio");
-  a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
-  a.style.display = "block";
+  div._rec = false;
+  await reapplyLine(div);
 }
 
 $("genAll").onclick = async () => {
