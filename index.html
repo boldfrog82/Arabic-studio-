@@ -230,6 +230,24 @@
     <div class="status" id="status"></div>
   </div>
 
+  <!-- ============ SOUND EFFECTS ============ -->
+  <div class="card">
+    <h2>5) Sound Effects 🔊 <span style="color:var(--muted);font-weight:400;">(free, made on your device, every press is a new variation)</span></h2>
+    <label>Effect</label>
+    <select id="sfxType"></select>
+    <div class="fxgrid">
+      <div><label>Length <span id="sfxDurV">1.0</span>s</label><input type="range" id="sfxDur" min="2" max="60" value="10"></div>
+      <div><label>Pitch <span id="sfxPitchV">100</span>%</label><input type="range" id="sfxPitch" min="40" max="250" value="100"></div>
+      <div><label>Power <span id="sfxIntV">70</span>%</label><input type="range" id="sfxInt" min="10" max="100" value="70"></div>
+    </div>
+    <div class="actions">
+      <button class="small" id="sfxGen">🎲 Generate sound</button>
+      <button class="ghostbtn small" id="sfxPlay" disabled>▶ Play</button>
+      <button class="ghostbtn small" id="sfxDl" disabled>⬇ MP3</button>
+    </div>
+    <audio id="sfxAudio" controls style="display:none"></audio>
+  </div>
+
   <details class="card" style="display:block;">
     <summary>❓ Help / Tips</summary>
     <div class="hint">
@@ -1325,6 +1343,177 @@ function saveBlob(blob, filename) {
   a.click();
   setTimeout(() => URL.revokeObjectURL(a.href), 5000);
 }
+
+/* ============================================================
+   Sound effects synthesizer — free, offline, randomized
+   ============================================================ */
+const SFX = [
+  ["explosion", "💥 Explosion"],
+  ["laser",     "🔫 Laser shot"],
+  ["jump",      "🦘 Jump"],
+  ["coin",      "🪙 Coin / Pickup"],
+  ["powerup",   "✨ Power-up"],
+  ["hit",       "👊 Hit / Punch"],
+  ["horn",      "🚕 Car horn"],
+  ["screech",   "🛞 Brake screech"],
+  ["engine",    "🚗 Engine"],
+  ["knock",     "✊ Door knock"],
+  ["slam",      "🚪 Door slam"],
+  ["thunder",   "⛈️ Thunder"],
+  ["rain",      "🌧️ Rain"],
+  ["wind",      "🌬️ Wind"],
+  ["heartbeat", "❤️ Heartbeat"],
+  ["steps",     "👣 Footsteps"],
+  ["whoosh",    "💨 Whoosh"],
+  ["alarm",     "🚨 Alarm"],
+  ["bell",      "🔔 Bell"],
+  ["magic",     "🪄 Magic sparkle"],
+  ["drone",     "👻 Scary drone"],
+];
+fillSelect($("sfxType"), SFX, "explosion");
+for (const [id, lbl, scale] of [["sfxDur","sfxDurV",10],["sfxPitch","sfxPitchV",1],["sfxInt","sfxIntV",1]]) {
+  $(id).addEventListener("input", () =>
+    $(lbl).textContent = scale === 10 ? (parseInt($(id).value,10)/10).toFixed(1) : $(id).value);
+}
+
+function sfxGenerate(type, dur, pitch, inten) {
+  const rate = audioCtx.sampleRate;
+  const n = Math.max(1, Math.floor(rate * dur));
+  const buf = audioCtx.createBuffer(1, n, rate);
+  const d = buf.getChannelData(0);
+  const TAU = Math.PI * 2;
+  const rnd = (a, b) => a + Math.random() * (b - a);
+  let lp = 0, lp2 = 0, ph = 0, ph2 = 0;
+  const noise = () => Math.random() * 2 - 1;
+  const thump = (i, start, freq, decay, amp) => {
+    const t = i / rate - start;
+    if (t < 0) return 0;
+    return Math.sin(TAU * freq * t) * Math.exp(-decay * t) * amp;
+  };
+  for (let i = 0; i < n; i++) {
+    const t = i / rate, p = i / n;
+    let v = 0;
+    switch (type) {
+      case "explosion":
+        lp += 0.035 * (noise() - lp);
+        v = lp * Math.exp(-4 * p) * 7 + thump(i, 0, 45 * pitch, 6, 0.8);
+        break;
+      case "laser":
+        v = Math.sin(ph += TAU * (1800 * pitch * Math.pow(0.12, p)) / rate) * Math.exp(-4 * p);
+        break;
+      case "jump":
+        v = Math.sin(ph += TAU * (160 * pitch * Math.pow(3.5, Math.min(p * 2, 1))) / rate) * Math.exp(-3 * p);
+        break;
+      case "coin":
+        v = Math.sin(ph += TAU * (p < 0.35 ? 988 : 1319) * pitch / rate) * (p < 0.35 ? 0.9 : Math.exp(-6 * (p - 0.35)));
+        break;
+      case "powerup":
+        v = Math.sin(ph += TAU * 320 * pitch * Math.pow(2, Math.floor(p * 6) / 3) / rate) * (1 - p * 0.5);
+        break;
+      case "hit":
+        lp += 0.15 * (noise() - lp);
+        v = lp * Math.exp(-25 * p) * 4 + thump(i, 0, 110 * pitch, 30, 0.9);
+        break;
+      case "horn": {
+        const env = Math.min(p * 25, 1) * (p > 0.85 ? (1 - p) / 0.15 : 1);
+        ph += TAU * 400 * pitch / rate; ph2 += TAU * 505 * pitch / rate;
+        v = ((ph % TAU) / TAU * 2 - 1 + (ph2 % TAU) / TAU * 2 - 1) * 0.4 * env;
+        break;
+      }
+      case "screech": {
+        lp += 0.4 * (noise() - lp);
+        const f = 2600 * pitch * (1 + 0.15 * Math.sin(TAU * 13 * t) + 0.1 * lp);
+        v = (Math.sin(ph += TAU * f / rate) * 0.7 + lp * 0.4) * Math.min(p * 12, 1) * (1 - p * 0.3);
+        break;
+      }
+      case "engine": {
+        const f = 55 * pitch * (1 + 0.1 * Math.sin(TAU * 0.7 * t));
+        lp += 0.08 * (noise() - lp);
+        v = ((Math.sin(ph += TAU * f / rate) > 0 ? 0.5 : -0.5) + lp * 0.8) * 0.7;
+        break;
+      }
+      case "knock":
+        lp += 0.06 * (noise() - lp);
+        for (const st of [0, 0.22, 0.44]) v += thump(i, st * (dur / 1), 85 * pitch, 35, 1) + (t > st && t < st + 0.02 ? lp * 2 : 0);
+        break;
+      case "slam":
+        lp += 0.05 * (noise() - lp);
+        v = thump(i, 0, 60 * pitch, 12, 1.2) + lp * Math.exp(-10 * p) * 3;
+        break;
+      case "thunder":
+        lp += (0.01 + 0.02 * Math.abs(Math.sin(TAU * 0.4 * t))) * (noise() - lp);
+        v = lp * 8 * Math.min(p * 8, 1) * Math.exp(-2.2 * p) + thump(i, 0.05, 35, 3, 0.5);
+        break;
+      case "rain":
+        lp += 0.5 * (noise() - lp);
+        v = (noise() - lp) * 0.35 + (Math.random() < 0.002 ? noise() * 0.6 : 0);
+        break;
+      case "wind":
+        lp += (0.015 + 0.012 * Math.sin(TAU * 0.25 * t)) * (noise() - lp);
+        v = lp * 5 * (0.7 + 0.3 * Math.sin(TAU * 0.18 * t + 1));
+        break;
+      case "heartbeat": {
+        const cyc = 0.9 / pitch;
+        const ct = t % cyc;
+        v = thump(i, Math.floor(t / cyc) * cyc, 48, 22, 1.1) * (ct < 0.2 ? 1 : 0)
+          + thump(i, Math.floor(t / cyc) * cyc + 0.22, 42, 26, 0.7) * (ct >= 0.2 && ct < 0.45 ? 1 : 0);
+        break;
+      }
+      case "steps": {
+        const step = 0.42 / pitch;
+        const st = Math.floor(t / step) * step;
+        lp += 0.12 * (noise() - lp);
+        v = (t - st < 0.07) ? lp * Math.exp(-40 * (t - st)) * 3.5 : 0;
+        break;
+      }
+      case "whoosh": {
+        const c = 0.02 + 0.3 * Math.exp(-Math.pow((p - 0.5) / 0.18, 2));
+        lp += c * (noise() - lp);
+        v = lp * 3 * Math.exp(-Math.pow((p - 0.5) / 0.25, 2));
+        break;
+      }
+      case "alarm":
+        v = ((Math.sin(ph += TAU * 780 * pitch / rate) > 0 ? 0.5 : -0.5)) * (Math.sin(TAU * 3.5 * t) > 0 ? 1 : 0) * (1 - p * 0.2);
+        break;
+      case "bell":
+        v = (Math.sin(ph += TAU * 660 * pitch / rate) * Math.exp(-2.5 * p)
+           + Math.sin(ph2 += TAU * 660 * 2.76 * pitch / rate) * Math.exp(-5 * p) * 0.5) * 0.8;
+        break;
+      case "magic":
+        if (Math.random() < 0.01 * inten * 3) { ph2 = rnd(900, 2600) * pitch; lp2 = 1; }
+        lp2 *= 0.9994;
+        v = Math.sin(ph += TAU * ph2 / rate) * lp2 * 0.8;
+        break;
+      case "drone":
+        v = (Math.sin(ph += TAU * 78 * pitch / rate) + Math.sin(ph2 += TAU * 79.3 * pitch / rate)) * 0.4
+          * (0.7 + 0.3 * Math.sin(TAU * 0.5 * t)) + (lp += 0.01 * (noise() - lp)) * 1.5;
+        break;
+    }
+    d[i] = Math.max(-1, Math.min(1, v * inten * 1.3));
+  }
+  // soft fade at the very end so it never clicks
+  const fade = Math.min(Math.floor(rate * 0.02), n);
+  for (let i = 0; i < fade; i++) d[n - 1 - i] *= i / fade;
+  return buf;
+}
+
+let sfxBuffer = null;
+$("sfxGen").onclick = () => {
+  sfxBuffer = sfxGenerate(
+    $("sfxType").value,
+    parseInt($("sfxDur").value, 10) / 10,
+    parseInt($("sfxPitch").value, 10) / 100,
+    parseInt($("sfxInt").value, 10) / 100
+  );
+  $("sfxPlay").disabled = false;
+  $("sfxDl").disabled = false;
+  const a = $("sfxAudio");
+  a.src = URL.createObjectURL(bufferToWavBlob(sfxBuffer));
+  a.style.display = "block";
+  playBuffer(sfxBuffer);
+};
+$("sfxPlay").onclick = () => playBuffer(sfxBuffer);
+$("sfxDl").onclick = () => downloadBuffer(sfxBuffer, "sfx_" + $("sfxType").value);
 
 /* start with the funny sample loaded */
 $("loadSample").click();
