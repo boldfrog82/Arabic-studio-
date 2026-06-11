@@ -245,6 +245,17 @@
       <button class="ghostbtn small" id="sfxPlay" disabled>▶ Play</button>
       <button class="ghostbtn small" id="sfxDl" disabled>⬇ MP3</button>
     </div>
+    <div style="margin-top:14px;border-top:1px solid #2a2f3f;padding-top:10px;">
+      <label>✨ AI sound — describe what you want (English works best)</label>
+      <textarea id="sfxPrompt" rows="2" dir="auto" placeholder="old taxi engine starting, then a funny cartoon explosion"></textarea>
+      <label style="margin-top:6px;">Free ElevenLabs key (only needed for AI sounds)</label>
+      <input type="password" id="elKey" placeholder="sk_...">
+      <div class="hint">Get it free: <b>elevenlabs.io</b> → sign up → your profile → <b>API Keys</b> → create key → paste here.
+        The free plan renews every month — enough for many sounds. No card needed. Length slider above controls the duration.</div>
+      <div class="actions">
+        <button class="small" id="sfxAiGen">✨ Generate AI sound</button>
+      </div>
+    </div>
     <audio id="sfxAudio" controls style="display:none"></audio>
   </div>
 
@@ -1514,6 +1525,47 @@ $("sfxGen").onclick = () => {
 };
 $("sfxPlay").onclick = () => playBuffer(sfxBuffer);
 $("sfxDl").onclick = () => downloadBuffer(sfxBuffer, "sfx_" + $("sfxType").value);
+
+/* ---------- AI sound effects from a text description (ElevenLabs) ---------- */
+$("elKey").value = lsGet("gvs_elkey") || "";
+$("elKey").addEventListener("change", () => lsSet("gvs_elkey", $("elKey").value.trim()));
+$("sfxAiGen").onclick = async () => {
+  const key = $("elKey").value.trim();
+  const prompt = $("sfxPrompt").value.trim();
+  if (!prompt) { setStatus("err", "Describe the sound first, e.g. 'angry old car horn'."); return; }
+  if (!key) { setStatus("err", "Paste your free ElevenLabs key first (see the line under the description box)."); return; }
+  $("sfxAiGen").disabled = true;
+  setStatus("", '<span class="spin"></span>AI is creating your sound...');
+  try {
+    const res = await fetch("https://api.elevenlabs.io/v1/sound-generation", {
+      method: "POST",
+      headers: { "xi-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: prompt,
+        duration_seconds: Math.min(Math.max(parseInt($("sfxDur").value, 10) / 10, 0.5), 22)
+      })
+    });
+    if (!res.ok) {
+      let msg = res.statusText;
+      try { const j = await res.json(); msg = (j.detail && (j.detail.message || j.detail.status)) || JSON.stringify(j); } catch {}
+      if (res.status === 401) msg = "key not accepted — copy it again from elevenlabs.io → API Keys";
+      if (res.status === 429) msg = "free monthly credits finished — they renew next month, or make a second free account";
+      throw new Error(msg);
+    }
+    sfxBuffer = await audioCtx.decodeAudioData(await res.arrayBuffer());
+    $("sfxPlay").disabled = false;
+    $("sfxDl").disabled = false;
+    const a = $("sfxAudio");
+    a.src = URL.createObjectURL(bufferToWavBlob(sfxBuffer));
+    a.style.display = "block";
+    playBuffer(sfxBuffer);
+    setStatus("ok", "✓ AI sound ready — ▶ play again or ⬇ download MP3.");
+  } catch (e) {
+    setStatus("err", "AI sound error: " + e.message);
+  } finally {
+    $("sfxAiGen").disabled = false;
+  }
+};
 
 /* start with the funny sample loaded */
 $("loadSample").click();
