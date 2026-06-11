@@ -207,6 +207,7 @@
     <h2>4) Generate &amp; Download</h2>
     <div class="bigactions">
       <button id="genAll" class="">🎙️ Generate all voices</button>
+      <button id="genOne" class="ghostbtn">💰 All in ONE request (saves quota)</button>
       <button id="playAll" class="ghostbtn">▶️ Play conversation</button>
       <button id="dlAll" class="green">⬇️ Download conversation MP3</button>
     </div>
@@ -227,7 +228,8 @@
       • <b>Arabic:</b> just type Arabic text, it works.<br>
       • <b>Effects</b> (robot, ghost, kid...) are applied on your device after the AI speaks, so they are 100% free.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
-      • Free plan limit: if you see "quota" errors, wait a minute and try again, or generate fewer lines at once.
+      • <b>Quota saving:</b> already-generated lines are skipped, three different models are tried automatically (each has its own free limit), and 💰 ONE-request mode makes the whole conversation for the price of a single line.<br>
+      • Free plan limit: if you see "quota" errors, wait 1-2 minutes and try again — the daily limit resets every night.
     </div>
   </details>
 </div>
@@ -474,6 +476,7 @@ for (const id of ["s1amt", "s2amt"]) {
 }
 
 function setLineState(div, kind, msg) {
+  div._ok = kind === "ok";
   const b = div.querySelector(".state");
   b.className = "badge state" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
   b.textContent = msg;
@@ -491,15 +494,14 @@ function fileNameFor(div) {
 /* ============================================================
    TTS via Gemini API (free tier)
    ============================================================ */
-async function ttsRequest(text, voiceName, stylePrompt) {
+const ACTING_RULES =
+  "Words between [brackets] or (parentheses) are acting directions describing the emotion and HOW to say the line — " +
+  "perform them with your voice but NEVER read those bracketed words aloud.\n";
+
+async function geminiTTS(prompt, speechConfig) {
   const key = $("apiKey").value.trim();
   if (!key) throw new Error("Paste your free API key first (step 1).");
-  const prompt =
-    (stylePrompt ? stylePrompt.trim() + "\n" : "") +
-    "Words between [brackets] or (parentheses) are acting directions describing the emotion and HOW to say the line — " +
-    "perform them with your voice but NEVER read those bracketed words aloud.\n" +
-    "Say this line: " + text;
-  let lastErr = "";
+  let lastErr = "", quotaHit = false;
   for (const model of TTS_MODELS) {
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
@@ -508,12 +510,7 @@ async function ttsRequest(text, voiceName, stylePrompt) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            responseModalities: ["AUDIO"],
-            speechConfig: {
-              voiceConfig: { prebuiltVoiceConfig: { voiceName } }
-            }
-          }
+          generationConfig: { responseModalities: ["AUDIO"], speechConfig }
         })
       }
     );
@@ -521,14 +518,41 @@ async function ttsRequest(text, voiceName, stylePrompt) {
     const data = await res.json();
     if (!res.ok) {
       const msg = (data.error && data.error.message) || res.statusText;
-      if (res.status === 429) throw new Error("Free quota reached — wait ~1 minute and try again. (" + msg + ")");
+      // each model has its OWN free quota — when one is empty, try the next
+      if (res.status === 429) { quotaHit = true; lastErr = msg; continue; }
       throw new Error(msg);
     }
     const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
     if (!part) throw new Error("No audio returned — try shorter text.");
     return pcmBase64ToBuffer(part.inlineData.data, part.inlineData.mimeType || "");
   }
+  if (quotaHit) throw new Error(
+    "Free quota used on ALL models. Wait 1-2 minutes and try again (per-minute limit), " +
+    "or the daily limit resets tomorrow. Tip: use 💰 ONE-request mode to spend 1 request instead of " +
+    Math.max(linesEl.children.length, 1) + "."
+  );
   throw new Error("No TTS model available for this key: " + lastErr);
+}
+
+async function ttsRequest(text, voiceName, stylePrompt) {
+  const prompt =
+    (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
+    "Say this line: " + text;
+  return geminiTTS(prompt, { voiceConfig: { prebuiltVoiceConfig: { voiceName } } });
+}
+
+async function ttsConversationRequest(script, n1, v1, n2, v2, stylePrompt) {
+  const prompt =
+    (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
+    "Read this conversation aloud:\n" + script;
+  return geminiTTS(prompt, {
+    multiSpeakerVoiceConfig: {
+      speakerVoiceConfigs: [
+        { speaker: n1, voiceConfig: { prebuiltVoiceConfig: { voiceName: v1 } } },
+        { speaker: n2, voiceConfig: { prebuiltVoiceConfig: { voiceName: v2 } } }
+      ]
+    }
+  });
 }
 
 /* Gemini returns 16-bit PCM mono (usually 24000 Hz) */
@@ -730,6 +754,7 @@ $("genAll").onclick = async () => {
   invalidateConversation();
   try {
     for (let i = 0; i < divs.length; i++) {
+      if (divs[i]._ok && divs[i]._raw) continue; // already generated — don't waste quota
       setStatus("", `<span class="spin"></span>Generating line ${i + 1} of ${divs.length}...`);
       await generateLine(divs[i]);
     }
@@ -739,6 +764,33 @@ $("genAll").onclick = async () => {
   } catch (e) {
     setStatus("err", "Error: " + e.message);
   } finally {
+    $("genAll").disabled = false;
+  }
+};
+
+/* Economy mode: the WHOLE conversation in one single API request.
+   Both AI voices act together; per-line MP3s and voice effects are not
+   available in this mode (the audio comes back as one piece). */
+$("genOne").onclick = async () => {
+  const divs = [...linesEl.children];
+  if (!divs.length) { setStatus("err", "Add some lines first (or press 🎬 Load funny taxi sample)."); return; }
+  const n1 = ($("s1name").value || "Speaker 1").trim();
+  const n2 = ($("s2name").value || "Speaker 2").trim();
+  const script = divs.map(d =>
+    (d.dataset.speaker === "1" ? n1 : n2) + ": " + d.querySelector("textarea").value.trim()
+  ).join("\n");
+  $("genOne").disabled = true;
+  $("genAll").disabled = true;
+  setStatus("", `<span class="spin"></span>Generating the whole conversation in ONE request...`);
+  try {
+    conversationBuffer = await ttsConversationRequest(
+      script, n1, $("s1voice").value, n2, $("s2voice").value, $("stylePrompt").value
+    );
+    setStatus("ok", "✓ Done with 1 request! Press ▶️ to listen or ⬇️ to download. (Voice effects work only in normal mode.)");
+  } catch (e) {
+    setStatus("err", "Error: " + e.message);
+  } finally {
+    $("genOne").disabled = false;
     $("genAll").disabled = false;
   }
 };
