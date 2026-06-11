@@ -315,6 +315,14 @@ const SAMPLE = [
 ];
 
 const $ = id => document.getElementById(id);
+// show any unexpected page error instead of dying silently
+window.addEventListener("error", e => {
+  const s = document.getElementById("status");
+  if (s) { s.className = "status err"; s.textContent = "Page error: " + e.message; }
+});
+// sandboxed viewers (opening the file from Downloads) block localStorage — survive that
+function lsGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function lsSet(k, v) { try { localStorage.setItem(k, v); } catch {} }
 const linesEl = $("lines");
 let lineId = 0;
 let conversationBuffer = null; // final mixed AudioBuffer
@@ -340,15 +348,15 @@ function applyEngine(initial) {
   if (!initial)
     for (const div of linesEl.children)
       if (div._raw) setLineState(div, "stale", "engine changed — regenerate");
-  localStorage.setItem("gvs_engine", $("engine").value);
+  lsSet("gvs_engine", $("engine").value);
 }
-$("engine").value = localStorage.getItem("gvs_engine") || "gemini";
+$("engine").value = lsGet("gvs_engine") || "gemini";
 $("engine").addEventListener("change", () => applyEngine(false));
 applyEngine(true);
 
 /* ---------- API key persistence ---------- */
-$("apiKey").value = localStorage.getItem("gvs_key") || "";
-$("apiKey").addEventListener("change", () => localStorage.setItem("gvs_key", $("apiKey").value.trim()));
+$("apiKey").value = lsGet("gvs_key") || "";
+$("apiKey").addEventListener("change", () => lsSet("gvs_key", $("apiKey").value.trim()));
 
 const KEY_URL = "https://aistudio.google.com/apikey";
 $("openKey").onclick = () => {
