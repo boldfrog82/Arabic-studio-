@@ -466,15 +466,19 @@ function addLine(speaker, text = "") {
   div.querySelector(".play").onclick = () => playBuffer(div._buffer);
   const fxSel = div.querySelector(".linefx");
   fillSelect(fxSel, [["inherit", "🎭 Use character's effect"], ...EFFECTS], "inherit");
-  fxSel.addEventListener("change", () => reapplyLine(div).catch(e => setLineState(div, "err", e.message)));
+  fxSel.addEventListener("change", () => { stopLive(); reapplyLine(div).catch(e => setLineState(div, "err", e.message)); });
   let lineFxTimer;
   for (const cls of ["lineamt", "lpitch", "lspeed", "lvol", "lecho", "lrev", "ldist", "ltone", "lbass", "lshake", "lwob"]) {
     const el = div.querySelector("." + cls);
     el.addEventListener("input", () => {
       const v = div.querySelector("." + cls + "v");
       if (v) v.textContent = el.value;
+      if (cls !== "lineamt") updateLive(div); // hear it change in real time
       clearTimeout(lineFxTimer);
-      lineFxTimer = setTimeout(() => reapplyLine(div).catch(e => setLineState(div, "err", e.message)), 350);
+      lineFxTimer = setTimeout(() => {
+        stopLive();
+        reapplyLine(div).catch(e => setLineState(div, "err", e.message));
+      }, 1000);
     });
   }
   div.querySelector(".dl").onclick = () => downloadBuffer(div._buffer, fileNameFor(div));
@@ -578,7 +582,14 @@ async function reapplyLine(div) {
   if (!div._raw) return;
   const p = lineFxParams(div);
   setLineState(div, "busy", "⏳ applying effect...");
-  div._buffer = await applyEffect(div._raw, p.fx, p.s, p.custom);
+  // cache the preset-processed audio so slider changes are fast and can preview live
+  const key = p.fx + "|" + p.s;
+  if (div._presetSrc !== div._raw || div._presetKey !== key) {
+    div._presetBuf = await applyPreset(div._raw, p.fx, p.s);
+    div._presetSrc = div._raw;
+    div._presetKey = key;
+  }
+  div._buffer = await applyEffect(div._presetBuf, "none", 0.6, p.custom);
   const a = div.querySelector("audio");
   a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
   a.style.display = "block";
@@ -586,6 +597,74 @@ async function reapplyLine(div) {
   div.querySelector(".dl").disabled = false;
   setLineState(div, "ok", readyMsg(div));
   invalidateConversation();
+}
+
+/* ---------- live preview: hear the sliders while you drag them ---------- */
+let live = null;
+function stopLive() {
+  if (!live) return;
+  try { live.src.stop(); } catch {}
+  try { live.master.disconnect(); } catch {}
+  live = null;
+}
+function fxCurve(drive) {
+  const c = new Float32Array(256);
+  for (let i = 0; i < 256; i++) { const x = i / 128 - 1; c[i] = Math.tanh(drive * x); }
+  return c;
+}
+function ensureLive(div) {
+  if (live && live.div === div) return live;
+  stopLive();
+  if (!div._presetBuf) return null;
+  audioCtx.resume();
+  const src = audioCtx.createBufferSource();
+  src.buffer = div._presetBuf;
+  src.loop = true;
+  const ws = audioCtx.createWaveShaper();
+  const lp = audioCtx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 20000;
+  const hs = audioCtx.createBiquadFilter(); hs.type = "highshelf"; hs.frequency.value = 2500; hs.gain.value = 0;
+  const ls = audioCtx.createBiquadFilter(); ls.type = "lowshelf"; ls.frequency.value = 200; ls.gain.value = 0;
+  const vib = audioCtx.createDelay(0.06); vib.delayTime.value = 0.02;
+  const vibLfo = audioCtx.createOscillator(); vibLfo.frequency.value = 4.5;
+  const vibDepth = audioCtx.createGain(); vibDepth.gain.value = 0;
+  vibLfo.connect(vibDepth).connect(vib.delayTime);
+  const trem = audioCtx.createGain();
+  const tremLfo = audioCtx.createOscillator(); tremLfo.frequency.value = 7;
+  const tremDepth = audioCtx.createGain(); tremDepth.gain.value = 0;
+  tremLfo.connect(tremDepth).connect(trem.gain);
+  const echo = audioCtx.createDelay(1); echo.delayTime.value = 0.25;
+  const echoFb = audioCtx.createGain(); echoFb.gain.value = 0;
+  const echoWet = audioCtx.createGain(); echoWet.gain.value = 0;
+  const conv = audioCtx.createConvolver(); conv.buffer = makeImpulse(audioCtx, 1.6, 3);
+  const revWet = audioCtx.createGain(); revWet.gain.value = 0;
+  const master = audioCtx.createGain();
+  src.connect(ws).connect(lp).connect(hs).connect(ls).connect(vib).connect(trem);
+  trem.connect(master);
+  trem.connect(echo);
+  echo.connect(echoFb).connect(echo);
+  echo.connect(echoWet).connect(master);
+  trem.connect(conv).connect(revWet).connect(master);
+  master.connect(audioCtx.destination);
+  tremLfo.start(); vibLfo.start(); src.start();
+  live = { div, src, ws, lp, hs, ls, trem, tremDepth, vibDepth, echoFb, echoWet, revWet, master };
+  return live;
+}
+function updateLive(div) {
+  const L = ensureLive(div);
+  if (!L) return;
+  const c = lineCustom(div);
+  L.src.playbackRate.value = Math.pow(2, c.semis / 12) * (c.speed || 1);
+  L.ws.curve = c.dist > 0 ? fxCurve(1 + 6 * c.dist) : null;
+  L.lp.frequency.value = c.tone < 0 ? 6000 + c.tone * 5400 : 20000;
+  L.hs.gain.value = c.tone > 0 ? c.tone * 14 : 0;
+  L.ls.gain.value = c.bass * 14;
+  L.trem.gain.value = 1 - 0.5 * c.shake;
+  L.tremDepth.gain.value = 0.5 * c.shake;
+  L.vibDepth.gain.value = 0.012 * c.wobble;
+  L.echoFb.gain.value = 0.55 * c.echo;
+  L.echoWet.gain.value = 0.9 * c.echo;
+  L.revWet.gain.value = c.reverb;
+  L.master.gain.value = c.vol;
 }
 
 /* ---------- record your own voice for a line ---------- */
@@ -1277,6 +1356,7 @@ function concatBuffers(buffers, gapMs) {
 
 function playBuffer(buffer) {
   if (!buffer) return;
+  stopLive();
   audioCtx.resume();
   const src = audioCtx.createBufferSource();
   src.buffer = buffer;
