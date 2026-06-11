@@ -434,6 +434,7 @@ function addLine(speaker, text = "") {
     <div class="actions">
       <button class="ghostbtn small gen">🎙️ Generate</button>
       <button class="ghostbtn small rec">🎤 Record</button>
+      <button class="ghostbtn small loop">🔁 Loop</button>
       <button class="ghostbtn small play" disabled>▶ Play</button>
       <button class="ghostbtn small dl" disabled>⬇ MP3</button>
     </div>
@@ -466,19 +467,32 @@ function addLine(speaker, text = "") {
   div.querySelector(".play").onclick = () => playBuffer(div._buffer);
   const fxSel = div.querySelector(".linefx");
   fillSelect(fxSel, [["inherit", "🎭 Use character's effect"], ...EFFECTS], "inherit");
-  fxSel.addEventListener("change", () => { stopLive(); reapplyLine(div).catch(e => setLineState(div, "err", e.message)); });
+  const rerenderKeepingLoop = async () => {
+    const keepLoop = div._loop;
+    if (live && live.div === div) killLiveGraph();
+    await reapplyLine(div).catch(e => setLineState(div, "err", e.message));
+    if (keepLoop && div._loop) updateLive(div); // restart the loop with the new sound
+  };
+  fxSel.addEventListener("change", rerenderKeepingLoop);
+  div.querySelector(".loop").onclick = async () => {
+    if (div._loop) { stopLive(); return; }
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    if (!div._presetBuf) await reapplyLine(div).catch(e => setLineState(div, "err", e.message));
+    if (!div._presetBuf) return;
+    stopLive(); // stop any other looping line
+    div._loop = true;
+    div.querySelector(".loop").classList.add("green");
+    updateLive(div);
+  };
   let lineFxTimer;
   for (const cls of ["lineamt", "lpitch", "lspeed", "lvol", "lecho", "lrev", "ldist", "ltone", "lbass", "lshake", "lwob"]) {
     const el = div.querySelector("." + cls);
     el.addEventListener("input", () => {
       const v = div.querySelector("." + cls + "v");
       if (v) v.textContent = el.value;
-      if (cls !== "lineamt") updateLive(div); // hear it change in real time
+      if (div._loop && cls !== "lineamt") updateLive(div); // live while looping
       clearTimeout(lineFxTimer);
-      lineFxTimer = setTimeout(() => {
-        stopLive();
-        reapplyLine(div).catch(e => setLineState(div, "err", e.message));
-      }, 1000);
+      lineFxTimer = setTimeout(rerenderKeepingLoop, 1000);
     });
   }
   div.querySelector(".dl").onclick = () => downloadBuffer(div._buffer, fileNameFor(div));
@@ -601,11 +615,21 @@ async function reapplyLine(div) {
 
 /* ---------- live preview: hear the sliders while you drag them ---------- */
 let live = null;
-function stopLive() {
+function killLiveGraph() {
   if (!live) return;
   try { live.src.stop(); } catch {}
   try { live.master.disconnect(); } catch {}
   live = null;
+}
+function stopLive() {
+  if (!live) return;
+  const div = live.div;
+  killLiveGraph();
+  if (div) {
+    div._loop = false;
+    const b = div.querySelector(".loop");
+    if (b) b.classList.remove("green");
+  }
 }
 function fxCurve(drive) {
   const c = new Float32Array(256);
