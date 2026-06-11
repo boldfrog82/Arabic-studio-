@@ -17,6 +17,7 @@
     --radius: 14px;
   }
   * { box-sizing: border-box; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     margin: 0;
     font-family: "Segoe UI", system-ui, Tahoma, Arial, sans-serif;
@@ -47,7 +48,7 @@
     font-size: .95rem;
     font-family: inherit;
   }
-  textarea { resize: vertical; min-height: 60px; }
+  textarea { resize: none; min-height: 60px; overflow-y: hidden; }
   select { cursor: pointer; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; }
   .row > div { flex: 1; min-width: 140px; }
@@ -120,9 +121,14 @@
     <label for="apiKey">Paste your free key (saved only in this browser)</label>
     <input type="password" id="apiKey" placeholder="AIza...">
     <div class="hint">
-      Get it free: open <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> →
-      "Create API key" → copy → paste here. The free plan is enough for this — <b>no payment needed</b>.
+      Get it free from <b>aistudio.google.com/apikey</b> → "Create API key" → copy → paste here.
+      The free plan is enough for this — <b>no payment needed</b>.
     </div>
+    <div class="actions">
+      <button class="ghostbtn small" id="openKey">🔗 Open key page</button>
+      <button class="ghostbtn small" id="copyKeyLink">📋 Copy link</button>
+    </div>
+    <div class="hint" id="keyLinkMsg">If the buttons do nothing, type <b>aistudio.google.com/apikey</b> in a new Chrome tab yourself.</div>
   </div>
 
   <!-- ============ SPEAKERS ============ -->
@@ -295,6 +301,29 @@ fillSelect($("s2fx"), EFFECTS, "none");
 $("apiKey").value = localStorage.getItem("gvs_key") || "";
 $("apiKey").addEventListener("change", () => localStorage.setItem("gvs_key", $("apiKey").value.trim()));
 
+const KEY_URL = "https://aistudio.google.com/apikey";
+$("openKey").onclick = () => {
+  const w = window.open(KEY_URL, "_blank");
+  if (!w) $("keyLinkMsg").innerHTML = "Chrome blocked it — type <b>aistudio.google.com/apikey</b> in a new tab.";
+};
+$("copyKeyLink").onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(KEY_URL);
+    $("keyLinkMsg").innerHTML = "✓ Link copied! Open a new Chrome tab and paste it.";
+  } catch {
+    $("keyLinkMsg").innerHTML = "Copy failed — type <b>aistudio.google.com/apikey</b> in a new tab.";
+  }
+};
+
+/* ---------- auto-grow textareas so the page scrolls smoothly ---------- */
+function autoGrow(t) {
+  t.style.height = "auto";
+  t.style.height = (t.scrollHeight + 2) + "px";
+}
+document.addEventListener("input", e => {
+  if (e.target.tagName === "TEXTAREA") autoGrow(e.target);
+});
+
 /* ---------- script lines ---------- */
 function addLine(speaker, text = "") {
   const id = ++lineId;
@@ -318,7 +347,9 @@ function addLine(speaker, text = "") {
     </div>
     <audio controls style="display:none"></audio>
   `;
-  div.querySelector("textarea").value = text;
+  const ta = div.querySelector("textarea");
+  ta.value = text;
+  requestAnimationFrame(() => autoGrow(ta));
   div.querySelector(".del").onclick = () => { div.remove(); invalidateConversation(); };
   div.querySelector(".up").onclick = () => { if (div.previousElementSibling) linesEl.insertBefore(div, div.previousElementSibling); invalidateConversation(); };
   div.querySelector(".down").onclick = () => { if (div.nextElementSibling) linesEl.insertBefore(div.nextElementSibling, div); invalidateConversation(); };
