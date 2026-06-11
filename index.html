@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Game Voice Studio — Free TTS + Voice Effects</title>
+<style>
+  :root {
+    --bg: #0f1117;
+    --panel: #1a1d27;
+    --panel2: #232734;
+    --accent: #7c5cff;
+    --accent2: #00d4a6;
+    --text: #e8eaf2;
+    --muted: #9aa0b4;
+    --danger: #ff5c7a;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "Segoe UI", system-ui, Tahoma, Arial, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 16px; }
+  h1 { font-size: 1.5rem; margin: 8px 0 2px; }
+  h1 .em { color: var(--accent2); }
+  .sub { color: var(--muted); margin: 0 0 16px; font-size: .9rem; }
+  .card {
+    background: var(--panel);
+    border: 1px solid #2a2f3f;
+    border-radius: var(--radius);
+    padding: 14px;
+    margin-bottom: 14px;
+  }
+  .card h2 { font-size: 1rem; margin: 0 0 10px; color: var(--accent2); }
+  label { font-size: .8rem; color: var(--muted); display: block; margin-bottom: 4px; }
+  input[type=text], input[type=password], textarea, select {
+    width: 100%;
+    background: var(--panel2);
+    color: var(--text);
+    border: 1px solid #343a4e;
+    border-radius: 10px;
+    padding: 10px;
+    font-size: .95rem;
+    font-family: inherit;
+  }
+  textarea { resize: vertical; min-height: 60px; }
+  select { cursor: pointer; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  .row > div { flex: 1; min-width: 140px; }
+  button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    border-radius: 10px;
+    padding: 10px 16px;
+    font-size: .95rem;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: inherit;
+  }
+  button:hover { filter: brightness(1.15); }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  button.ghostbtn { background: var(--panel2); border: 1px solid #3a4156; }
+  button.small { padding: 6px 10px; font-size: .8rem; }
+  button.green { background: var(--accent2); color: #06281f; }
+  button.red { background: var(--danger); }
+  .line-card {
+    background: var(--panel2);
+    border: 1px solid #343a4e;
+    border-radius: 12px;
+    padding: 10px;
+    margin-bottom: 10px;
+  }
+  .line-top { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  .line-top select { width: auto; flex: 1; min-width: 110px; }
+  .badge {
+    font-size: .7rem;
+    padding: 3px 8px;
+    border-radius: 99px;
+    background: #2c3146;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .badge.ok { background: #103d31; color: var(--accent2); }
+  .badge.err { background: #44182a; color: var(--danger); }
+  .actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+  .bigactions { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 6px; }
+  .bigactions button { flex: 1; min-width: 150px; padding: 13px; }
+  .hint { font-size: .78rem; color: var(--muted); margin-top: 6px; line-height: 1.5; }
+  .hint a { color: var(--accent2); }
+  details summary { cursor: pointer; color: var(--accent2); font-size: .85rem; margin-bottom: 6px; }
+  .status { font-size: .85rem; margin-top: 10px; min-height: 1.2em; }
+  .status.err { color: var(--danger); }
+  .status.ok { color: var(--accent2); }
+  .spin {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid var(--muted); border-top-color: var(--accent2);
+    border-radius: 50%; animation: sp 0.8s linear infinite;
+    vertical-align: -2px; margin-right: 6px;
+  }
+  @keyframes sp { to { transform: rotate(360deg); } }
+  audio { width: 100%; margin-top: 8px; height: 36px; }
+  .speaker-config { border-left: 3px solid var(--accent); padding-left: 10px; margin-bottom: 12px; }
+  .speaker-config.s2 { border-left-color: var(--accent2); }
+  [dir] textarea { unicode-bidi: plaintext; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
+  <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.</p>
+
+  <!-- ============ API KEY ============ -->
+  <div class="card">
+    <h2>1) Free Google API Key</h2>
+    <label for="apiKey">Paste your free key (saved only in this browser)</label>
+    <input type="password" id="apiKey" placeholder="AIza...">
+    <div class="hint">
+      Get it free: open <a href="https://aistudio.google.com/apikey" target="_blank">aistudio.google.com/apikey</a> →
+      "Create API key" → copy → paste here. The free plan is enough for this — <b>no payment needed</b>.
+    </div>
+  </div>
+
+  <!-- ============ SPEAKERS ============ -->
+  <div class="card">
+    <h2>2) Your Two Characters</h2>
+
+    <div class="speaker-config">
+      <div class="row">
+        <div>
+          <label>Character 1 name</label>
+          <input type="text" id="s1name" value="Jim">
+        </div>
+        <div>
+          <label>AI base voice</label>
+          <select id="s1voice"></select>
+        </div>
+        <div>
+          <label>Voice effect 🎭</label>
+          <select id="s1fx"></select>
+        </div>
+      </div>
+    </div>
+
+    <div class="speaker-config s2">
+      <div class="row">
+        <div>
+          <label>Character 2 name</label>
+          <input type="text" id="s2name" value="Passenger">
+        </div>
+        <div>
+          <label>AI base voice</label>
+          <select id="s2voice"></select>
+        </div>
+        <div>
+          <label>Voice effect 🎭</label>
+          <select id="s2fx"></select>
+        </div>
+      </div>
+    </div>
+
+    <label>Acting style (tell the AI how to perform)</label>
+    <textarea id="stylePrompt" rows="2">Perform this like a funny comedy sketch. Be very expressive, exaggerated and energetic.</textarea>
+  </div>
+
+  <!-- ============ SCRIPT ============ -->
+  <div class="card">
+    <h2>3) The Conversation</h2>
+    <div id="lines"></div>
+    <div class="actions">
+      <button class="ghostbtn small" id="addLine1">＋ Line for Character 1</button>
+      <button class="ghostbtn small" id="addLine2">＋ Line for Character 2</button>
+      <button class="ghostbtn small" id="loadSample">🎬 Load funny taxi sample</button>
+    </div>
+  </div>
+
+  <!-- ============ GENERATE ============ -->
+  <div class="card">
+    <h2>4) Generate &amp; Download</h2>
+    <div class="bigactions">
+      <button id="genAll" class="">🎙️ Generate all voices</button>
+      <button id="playAll" class="ghostbtn" disabled>▶️ Play conversation</button>
+      <button id="dlAll" class="green" disabled>⬇️ Download conversation MP3</button>
+    </div>
+    <div class="hint">Each line also gets its own ▶ play and ⬇ MP3 button, so you can use single lines in your game too. Gap between lines:
+      <select id="gapMs" style="width:auto;padding:4px 8px;">
+        <option value="250">0.25s</option>
+        <option value="450" selected>0.45s</option>
+        <option value="800">0.8s</option>
+      </select>
+    </div>
+    <div class="status" id="status"></div>
+  </div>
+
+  <details class="card" style="display:block;">
+    <summary>❓ Help / Tips</summary>
+    <div class="hint">
+      • <b>Expressive speech:</b> write emotion hints inside the text, like: <i>(laughing) No way!</i> or <i>(whispering) it's behind you...</i> — the AI acts them.<br>
+      • <b>Arabic:</b> just type Arabic text, it works.<br>
+      • <b>Effects</b> (robot, ghost, kid...) are applied on your device after the AI speaks, so they are 100% free.<br>
+      • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
+      • Free plan limit: if you see "quota" errors, wait a minute and try again, or generate fewer lines at once.
+    </div>
+  </details>
+</div>
+
+<script>
+/* ============================================================
+   Gemini base voices (prebuilt). Name — character it gives.
+   ============================================================ */
+const VOICES = [
+  ["Puck", "Puck — upbeat man"],
+  ["Fenrir", "Fenrir — excitable man"],
+  ["Charon", "Charon — deep serious man"],
+  ["Orus", "Orus — firm man"],
+  ["Enceladus", "Enceladus — breathy man"],
+  ["Iapetus", "Iapetus — clear man"],
+  ["Algenib", "Algenib — gravelly man"],
+  ["Kore", "Kore — firm woman"],
+  ["Aoede", "Aoede — breezy woman"],
+  ["Leda", "Leda — youthful woman"],
+  ["Zephyr", "Zephyr — bright woman"],
+  ["Callirrhoe", "Callirrhoe — easy-going woman"],
+  ["Laomedeia", "Laomedeia — upbeat woman"],
+  ["Achernar", "Achernar — soft woman"],
+];
+
+/* Voice effects applied locally (free, offline) */
+const EFFECTS = [
+  ["none",      "🎤 Normal (no effect)"],
+  ["robot",     "🤖 Robot"],
+  ["ghost",     "👻 Ghost"],
+  ["kid",       "🧒 Kid"],
+  ["chipmunk",  "🐿️ Chipmunk (very funny)"],
+  ["man",       "🧔 Deep man"],
+  ["monster",   "👹 Monster / Giant"],
+  ["alien",     "👽 Alien"],
+  ["radio",     "📻 Old radio / Walkie-talkie"],
+  ["cave",      "🕳️ Cave echo"],
+  ["underwater","🌊 Underwater"],
+  ["phone",     "📞 Telephone"],
+];
+
+/* TTS models to try, newest first (falls back automatically) */
+const TTS_MODELS = [
+  "gemini-3.1-flash-tts-preview",
+  "gemini-2.5-flash-preview-tts",
+  "gemini-2.5-pro-preview-tts",
+];
+
+const SAMPLE = [
+  [1, "Welcome to Jim's taxi! The fastest taxi in the city... (proudly) well, when it starts."],
+  [2, "(nervous) When it... starts? What do you mean WHEN it starts?!"],
+  [1, "(laughing) Relax my friend! It only broke down twice today. That's a new record!"],
+  [2, "(screaming) TWICE?! Stop the car, I want to get out!"],
+  [1, "(calm and happy) I would love to stop... but the brakes are also... how do you say... on vacation."],
+  [2, "(crying) I just wanted to go to the supermarket..."],
+];
+
+const $ = id => document.getElementById(id);
+const linesEl = $("lines");
+let lineId = 0;
+let conversationBuffer = null; // final mixed AudioBuffer
+const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+/* ---------- build selects ---------- */
+function fillSelect(sel, items, def) {
+  sel.innerHTML = "";
+  for (const [v, label] of items) {
+    const o = document.createElement("option");
+    o.value = v; o.textContent = label;
+    if (v === def) o.selected = true;
+    sel.appendChild(o);
+  }
+}
+fillSelect($("s1voice"), VOICES, "Fenrir");
+fillSelect($("s2voice"), VOICES, "Puck");
+fillSelect($("s1fx"), EFFECTS, "none");
+fillSelect($("s2fx"), EFFECTS, "none");
+
+/* ---------- API key persistence ---------- */
+$("apiKey").value = localStorage.getItem("gvs_key") || "";
+$("apiKey").addEventListener("change", () => localStorage.setItem("gvs_key", $("apiKey").value.trim()));
+
+/* ---------- script lines ---------- */
+function addLine(speaker, text = "") {
+  const id = ++lineId;
+  const div = document.createElement("div");
+  div.className = "line-card";
+  div.dataset.id = id;
+  div.dataset.speaker = speaker;
+  div.innerHTML = `
+    <div class="line-top">
+      <span class="badge who"></span>
+      <span class="badge state">not generated</span>
+      <button class="ghostbtn small up" title="Move up">↑</button>
+      <button class="ghostbtn small down" title="Move down">↓</button>
+      <button class="red small del" title="Delete">✕</button>
+    </div>
+    <textarea rows="2" dir="auto" placeholder="Type what this character says... use (laughing) (angry) (whispering) for emotions"></textarea>
+    <div class="actions">
+      <button class="ghostbtn small gen">🎙️ Generate</button>
+      <button class="ghostbtn small play" disabled>▶ Play</button>
+      <button class="ghostbtn small dl" disabled>⬇ MP3</button>
+    </div>
+    <audio controls style="display:none"></audio>
+  `;
+  div.querySelector("textarea").value = text;
+  div.querySelector(".del").onclick = () => { div.remove(); invalidateConversation(); };
+  div.querySelector(".up").onclick = () => { if (div.previousElementSibling) linesEl.insertBefore(div, div.previousElementSibling); invalidateConversation(); };
+  div.querySelector(".down").onclick = () => { if (div.nextElementSibling) linesEl.insertBefore(div.nextElementSibling, div); invalidateConversation(); };
+  div.querySelector(".gen").onclick = () => generateLine(div).catch(e => setLineState(div, "err", e.message));
+  div.querySelector(".play").onclick = () => playBuffer(div._buffer);
+  div.querySelector(".dl").onclick = () => downloadBuffer(div._buffer, fileNameFor(div));
+  div.querySelector("textarea").addEventListener("input", () => setLineState(div, "stale", "edited — regenerate"));
+  linesEl.appendChild(div);
+  refreshNames();
+  return div;
+}
+
+function refreshNames() {
+  const n1 = $("s1name").value || "Character 1";
+  const n2 = $("s2name").value || "Character 2";
+  for (const div of linesEl.children) {
+    div.querySelector(".who").textContent = div.dataset.speaker === "1" ? "🟣 " + n1 : "🟢 " + n2;
+  }
+}
+$("s1name").addEventListener("input", refreshNames);
+$("s2name").addEventListener("input", refreshNames);
+$("addLine1").onclick = () => addLine("1");
+$("addLine2").onclick = () => addLine("2");
+$("loadSample").onclick = () => {
+  linesEl.innerHTML = "";
+  for (const [sp, txt] of SAMPLE) addLine(String(sp), txt);
+};
+// invalidate single lines when voice/effect changes
+for (const id of ["s1voice","s2voice","s1fx","s2fx"]) {
+  $(id).addEventListener("change", () => {
+    const sp = id[1]; // "1" or "2"
+    for (const div of linesEl.children)
+      if (div.dataset.speaker === sp && div._buffer) setLineState(div, "stale", "settings changed — regenerate");
+  });
+}
+
+function setLineState(div, kind, msg) {
+  const b = div.querySelector(".state");
+  b.className = "badge state" + (kind === "ok" ? " ok" : kind === "err" ? " err" : "");
+  b.textContent = msg;
+  if (kind === "err" || kind === "stale") invalidateConversation();
+}
+function invalidateConversation() {
+  conversationBuffer = null;
+  $("playAll").disabled = true;
+  $("dlAll").disabled = true;
+}
+function fileNameFor(div) {
+  const name = div.dataset.speaker === "1" ? $("s1name").value : $("s2name").value;
+  const txt = div.querySelector("textarea").value.replace(/[^\w؀-ۿ ]/g, "").trim().slice(0, 24).replace(/ +/g, "_");
+  return (name + "_" + (txt || "line")).slice(0, 40);
+}
+
+/* ============================================================
+   TTS via Gemini API (free tier)
+   ============================================================ */
+async function ttsRequest(text, voiceName, stylePrompt) {
+  const key = $("apiKey").value.trim();
+  if (!key) throw new Error("Paste your free API key first (step 1).");
+  const prompt = (stylePrompt ? stylePrompt.trim() + "\nSay this line: " : "") + text;
+  let lastErr = "";
+  for (const model of TTS_MODELS) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: {
+            responseModalities: ["AUDIO"],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName } }
+            }
+          }
+        })
+      }
+    );
+    if (res.status === 404) { lastErr = `model ${model} not found`; continue; } // try older model
+    const data = await res.json();
+    if (!res.ok) {
+      const msg = (data.error && data.error.message) || res.statusText;
+      if (res.status === 429) throw new Error("Free quota reached — wait ~1 minute and try again. (" + msg + ")");
+      throw new Error(msg);
+    }
+    const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
+    if (!part) throw new Error("No audio returned — try shorter text.");
+    return pcmBase64ToBuffer(part.inlineData.data, part.inlineData.mimeType || "");
+  }
+  throw new Error("No TTS model available for this key: " + lastErr);
+}
+
+/* Gemini returns 16-bit PCM mono (usually 24000 Hz) */
+function pcmBase64ToBuffer(b64, mime) {
+  const rateMatch = /rate=(\d+)/.exec(mime);
+  const rate = rateMatch ? parseInt(rateMatch[1]) : 24000;
+  const bin = atob(b64);
+  const n = Math.floor(bin.length / 2);
+  const buf = audioCtx.createBuffer(1, n, rate);
+  const ch = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    const lo = bin.charCodeAt(i * 2), hi = bin.charCodeAt(i * 2 + 1);
+    let v = (hi << 8) | lo;
+    if (v >= 0x8000) v -= 0x10000;
+    ch[i] = v / 32768;
+  }
+  return buf;
+}
+
+/* ============================================================
+   Voice effects (Web Audio, offline rendering — free)
+   ============================================================ */
+function pitchShift(buffer, factor) {
+  // tape-style: changes pitch and speed together (good for kid/monster voices)
+  const rate = buffer.sampleRate;
+  const src = buffer.getChannelData(0);
+  const outLen = Math.floor(src.length / factor);
+  const out = audioCtx.createBuffer(1, outLen, rate);
+  const dst = out.getChannelData(0);
+  for (let i = 0; i < outLen; i++) {
+    const pos = i * factor;
+    const i0 = Math.floor(pos), frac = pos - i0;
+    dst[i] = src[i0] + (src[Math.min(i0 + 1, src.length - 1)] - src[i0]) * frac;
+  }
+  return out;
+}
+
+function makeImpulse(ctx, seconds, decay) {
+  const rate = ctx.sampleRate, len = rate * seconds;
+  const imp = ctx.createBuffer(2, len, rate);
+  for (let c = 0; c < 2; c++) {
+    const ch = imp.getChannelData(c);
+    for (let i = 0; i < len; i++)
+      ch[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, decay);
+  }
+  return imp;
+}
+
+async function renderFx(buffer, tailSec, build) {
+  const ctx = new OfflineAudioContext(1, Math.ceil((buffer.duration + tailSec) * buffer.sampleRate), buffer.sampleRate);
+  const src = ctx.createBufferSource();
+  src.buffer = buffer;
+  build(ctx, src);
+  src.start();
+  return await ctx.startRendering();
+}
+
+async function applyEffect(buffer, fx) {
+  switch (fx) {
+    case "none": return buffer;
+
+    case "kid": return pitchShift(buffer, 1.32);
+    case "chipmunk": return pitchShift(buffer, 1.65);
+    case "man": return pitchShift(buffer, 0.82);
+
+    case "monster": {
+      const low = pitchShift(buffer, 0.62);
+      return renderFx(low, 0.3, (ctx, src) => {
+        const dist = ctx.createWaveShaper();
+        const curve = new Float32Array(256);
+        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(2.5 * x); }
+        dist.curve = curve;
+        src.connect(dist).connect(ctx.destination);
+      });
+    }
+
+    case "robot":
+      return renderFx(buffer, 0.1, (ctx, src) => {
+        const ring = ctx.createGain(); ring.gain.value = 0;
+        const osc = ctx.createOscillator(); osc.type = "square"; osc.frequency.value = 42;
+        const oscGain = ctx.createGain(); oscGain.gain.value = 0.5;
+        const base = ctx.createGain(); base.gain.value = 0.5;
+        osc.connect(oscGain).connect(ring.gain);
+        const bp = ctx.createBiquadFilter(); bp.type = "bandpass"; bp.frequency.value = 1700; bp.Q.value = 0.6;
+        src.connect(ring); src.connect(base);
+        ring.connect(bp); base.connect(bp);
+        bp.connect(ctx.destination);
+        osc.start();
+      });
+
+    case "ghost": {
+      const low = pitchShift(buffer, 0.88);
+      return renderFx(low, 2.2, (ctx, src) => {
+        const conv = ctx.createConvolver(); conv.buffer = makeImpulse(ctx, 2.4, 3.2);
+        const wet = ctx.createGain(); wet.gain.value = 0.85;
+        const dry = ctx.createGain(); dry.gain.value = 0.45;
+        const trem = ctx.createGain(); trem.gain.value = 0.75;
+        const lfo = ctx.createOscillator(); lfo.frequency.value = 5.3;
+        const lfoG = ctx.createGain(); lfoG.gain.value = 0.25;
+        lfo.connect(lfoG).connect(trem.gain);
+        src.connect(trem);
+        trem.connect(dry).connect(ctx.destination);
+        trem.connect(conv).connect(wet).connect(ctx.destination);
+        lfo.start();
+      });
+    }
+
+    case "alien": {
+      const hi = pitchShift(buffer, 1.18);
+      return renderFx(hi, 0.2, (ctx, src) => {
+        const ring = ctx.createGain(); ring.gain.value = 0;
+        const osc = ctx.createOscillator(); osc.type = "sine"; osc.frequency.value = 90;
+        const lfo = ctx.createOscillator(); lfo.frequency.value = 3;
+        const lfoG = ctx.createGain(); lfoG.gain.value = 55;
+        lfo.connect(lfoG).connect(osc.frequency);
+        const oscGain = ctx.createGain(); oscGain.gain.value = 0.6;
+        const base = ctx.createGain(); base.gain.value = 0.4;
+        osc.connect(oscGain).connect(ring.gain);
+        src.connect(ring).connect(ctx.destination);
+        src.connect(base).connect(ctx.destination);
+        osc.start(); lfo.start();
+      });
+    }
+
+    case "radio":
+      return renderFx(buffer, 0.1, (ctx, src) => {
+        const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 500;
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 2800;
+        const dist = ctx.createWaveShaper();
+        const curve = new Float32Array(256);
+        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(4 * x) * 0.8; }
+        dist.curve = curve;
+        src.connect(hp).connect(lp).connect(dist).connect(ctx.destination);
+      });
+
+    case "phone":
+      return renderFx(buffer, 0.1, (ctx, src) => {
+        const hp = ctx.createBiquadFilter(); hp.type = "highpass"; hp.frequency.value = 300;
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 3400;
+        src.connect(hp).connect(lp).connect(ctx.destination);
+      });
+
+    case "cave":
+      return renderFx(buffer, 1.6, (ctx, src) => {
+        const delay = ctx.createDelay(1); delay.delayTime.value = 0.28;
+        const fb = ctx.createGain(); fb.gain.value = 0.42;
+        const wet = ctx.createGain(); wet.gain.value = 0.5;
+        src.connect(ctx.destination);
+        src.connect(delay);
+        delay.connect(fb).connect(delay);
+        delay.connect(wet).connect(ctx.destination);
+      });
+
+    case "underwater":
+      return renderFx(buffer, 0.3, (ctx, src) => {
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 600; lp.Q.value = 1.2;
+        const trem = ctx.createGain(); trem.gain.value = 0.8;
+        const lfo = ctx.createOscillator(); lfo.frequency.value = 2.2;
+        const lfoG = ctx.createGain(); lfoG.gain.value = 0.2;
+        lfo.connect(lfoG).connect(trem.gain);
+        src.connect(lp).connect(trem).connect(ctx.destination);
+        lfo.start();
+      });
+
+    default: return buffer;
+  }
+}
+
+/* ============================================================
+   Generate
+   ============================================================ */
+async function generateLine(div) {
+  const text = div.querySelector("textarea").value.trim();
+  if (!text) throw new Error("empty text");
+  const sp = div.dataset.speaker;
+  const voice = $(sp === "1" ? "s1voice" : "s2voice").value;
+  const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
+  setLineState(div, "busy", "⏳ generating...");
+  const raw = await ttsRequest(text, voice, $("stylePrompt").value);
+  setLineState(div, "busy", "⏳ applying effect...");
+  div._buffer = await applyEffect(raw, fx);
+  setLineState(div, "ok", "✓ ready");
+  div.querySelector(".play").disabled = false;
+  div.querySelector(".dl").disabled = false;
+  const a = div.querySelector("audio");
+  a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
+  a.style.display = "block";
+}
+
+$("genAll").onclick = async () => {
+  const divs = [...linesEl.children];
+  if (!divs.length) { setStatus("err", "Add some lines first (or press 🎬 Load funny taxi sample)."); return; }
+  $("genAll").disabled = true;
+  invalidateConversation();
+  try {
+    for (let i = 0; i < divs.length; i++) {
+      setStatus("", `<span class="spin"></span>Generating line ${i + 1} of ${divs.length}...`);
+      await generateLine(divs[i]);
+    }
+    setStatus("", `<span class="spin"></span>Mixing the conversation...`);
+    conversationBuffer = concatBuffers(divs.map(d => d._buffer), parseInt($("gapMs").value));
+    $("playAll").disabled = false;
+    $("dlAll").disabled = false;
+    setStatus("ok", "✓ Done! Press ▶️ to listen or ⬇️ to download the MP3.");
+  } catch (e) {
+    setStatus("err", "Error: " + e.message);
+  } finally {
+    $("genAll").disabled = false;
+  }
+};
+
+$("playAll").onclick = () => playBuffer(conversationBuffer);
+$("dlAll").onclick = () => downloadBuffer(conversationBuffer, "conversation");
+
+function setStatus(kind, html) {
+  const s = $("status");
+  s.className = "status " + kind;
+  s.innerHTML = html;
+}
+
+function concatBuffers(buffers, gapMs) {
+  const rate = buffers[0].sampleRate;
+  const gap = Math.floor(rate * gapMs / 1000);
+  let total = buffers.reduce((s, b) => s + b.length, 0) + gap * (buffers.length - 1);
+  const out = audioCtx.createBuffer(1, total, rate);
+  const dst = out.getChannelData(0);
+  let pos = 0;
+  for (let i = 0; i < buffers.length; i++) {
+    dst.set(buffers[i].getChannelData(0), pos);
+    pos += buffers[i].length + gap;
+  }
+  return out;
+}
+
+function playBuffer(buffer) {
+  if (!buffer) return;
+  audioCtx.resume();
+  const src = audioCtx.createBufferSource();
+  src.buffer = buffer;
+  src.connect(audioCtx.destination);
+  src.start();
+}
+
+/* ============================================================
+   Export: MP3 (lamejs) with WAV fallback
+   ============================================================ */
+let lameLoading = null;
+function loadLame() {
+  if (window.lamejs) return Promise.resolve();
+  if (lameLoading) return lameLoading;
+  lameLoading = new Promise((ok, bad) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/lamejs@1.2.1/lame.min.js";
+    s.onload = ok;
+    s.onerror = () => bad(new Error("mp3 encoder not reachable"));
+    document.head.appendChild(s);
+  });
+  return lameLoading;
+}
+
+async function downloadBuffer(buffer, name) {
+  if (!buffer) return;
+  try {
+    await loadLame();
+    const blob = bufferToMp3Blob(buffer);
+    saveBlob(blob, name + ".mp3");
+  } catch (e) {
+    // offline fallback: WAV works in every game engine too
+    saveBlob(bufferToWavBlob(buffer), name + ".wav");
+  }
+}
+
+function bufferToMp3Blob(buffer) {
+  const rate = buffer.sampleRate;
+  const ch = buffer.getChannelData(0);
+  const samples = new Int16Array(ch.length);
+  for (let i = 0; i < ch.length; i++)
+    samples[i] = Math.max(-32768, Math.min(32767, Math.round(ch[i] * 32767)));
+  const enc = new lamejs.Mp3Encoder(1, rate, 128);
+  const chunks = [];
+  const block = 1152;
+  for (let i = 0; i < samples.length; i += block) {
+    const d = enc.encodeBuffer(samples.subarray(i, i + block));
+    if (d.length) chunks.push(d);
+  }
+  const end = enc.flush();
+  if (end.length) chunks.push(end);
+  return new Blob(chunks, { type: "audio/mpeg" });
+}
+
+function bufferToWavBlob(buffer) {
+  const rate = buffer.sampleRate, ch = buffer.getChannelData(0);
+  const dataLen = ch.length * 2;
+  const ab = new ArrayBuffer(44 + dataLen);
+  const v = new DataView(ab);
+  const wstr = (o, s) => { for (let i = 0; i < s.length; i++) v.setUint8(o + i, s.charCodeAt(i)); };
+  wstr(0, "RIFF"); v.setUint32(4, 36 + dataLen, true); wstr(8, "WAVE");
+  wstr(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, rate, true); v.setUint32(28, rate * 2, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  wstr(36, "data"); v.setUint32(40, dataLen, true);
+  let o = 44;
+  for (let i = 0; i < ch.length; i++, o += 2)
+    v.setInt16(o, Math.max(-32768, Math.min(32767, Math.round(ch[i] * 32767))), true);
+  return new Blob([ab], { type: "audio/wav" });
+}
+
+function saveBlob(blob, filename) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+}
+
+/* start with the funny sample loaded */
+$("loadSample").click();
+</script>
+</body>
+</html>
