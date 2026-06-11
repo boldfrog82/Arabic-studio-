@@ -414,8 +414,15 @@ function addLine(speaker, text = "") {
     </div>
     <div class="fxgrid">
       <div><label>Pitch <span class="lpitchv">0</span></label><input type="range" class="lpitch" min="-12" max="12" value="0"></div>
+      <div><label>Speed <span class="lspeedv">100</span>%</label><input type="range" class="lspeed" min="50" max="200" value="100"></div>
+      <div><label>Volume <span class="lvolv">100</span>%</label><input type="range" class="lvol" min="0" max="200" value="100"></div>
       <div><label>Echo <span class="lechov">0</span>%</label><input type="range" class="lecho" min="0" max="100" value="0"></div>
+      <div><label>Reverb <span class="lrevv">0</span>%</label><input type="range" class="lrev" min="0" max="100" value="0"></div>
       <div><label>Grit <span class="ldistv">0</span>%</label><input type="range" class="ldist" min="0" max="100" value="0"></div>
+      <div><label>Tone <span class="ltonev">0</span></label><input type="range" class="ltone" min="-100" max="100" value="0"></div>
+      <div><label>Bass <span class="lbassv">0</span></label><input type="range" class="lbass" min="-100" max="100" value="0"></div>
+      <div><label>Shake <span class="lshakev">0</span>%</label><input type="range" class="lshake" min="0" max="100" value="0"></div>
+      <div><label>Wobble <span class="lwobv">0</span>%</label><input type="range" class="lwob" min="0" max="100" value="0"></div>
     </div>
     <audio controls style="display:none"></audio>
   `;
@@ -432,7 +439,7 @@ function addLine(speaker, text = "") {
   fillSelect(fxSel, [["inherit", "🎭 Use character's effect"], ...EFFECTS], "inherit");
   fxSel.addEventListener("change", () => reapplyLine(div).catch(e => setLineState(div, "err", e.message)));
   let lineFxTimer;
-  for (const cls of ["lineamt", "lpitch", "lecho", "ldist"]) {
+  for (const cls of ["lineamt", "lpitch", "lspeed", "lvol", "lecho", "lrev", "ldist", "ltone", "lbass", "lshake", "lwob"]) {
     const el = div.querySelector("." + cls);
     el.addEventListener("input", () => {
       const v = div.querySelector("." + cls + "v");
@@ -513,10 +520,18 @@ function effectStrength(sp) {
   return parseInt($(sp === "1" ? "s1amt" : "s2amt").value, 10) / 100;
 }
 function lineCustom(div) {
+  const g = cls => parseInt(div.querySelector("." + cls).value, 10);
   return {
-    semis: parseInt(div.querySelector(".lpitch").value, 10),
-    echo: parseInt(div.querySelector(".lecho").value, 10) / 100,
-    dist: parseInt(div.querySelector(".ldist").value, 10) / 100,
+    semis: g("lpitch"),
+    speed: g("lspeed") / 100,
+    vol: g("lvol") / 100,
+    echo: g("lecho") / 100,
+    reverb: g("lrev") / 100,
+    dist: g("ldist") / 100,
+    tone: g("ltone") / 100,
+    bass: g("lbass") / 100,
+    shake: g("lshake") / 100,
+    wobble: g("lwob") / 100,
   };
 }
 
@@ -809,32 +824,115 @@ async function renderFx(buffer, tailSec, build) {
   return await ctx.startRendering();
 }
 
+/* slow down / speed up WITHOUT changing the pitch (overlap-add grains) */
+function timeStretch(buffer, factor) {
+  if (Math.abs(factor - 1) < 0.02) return buffer;
+  const rate = buffer.sampleRate;
+  const src = buffer.getChannelData(0);
+  const grain = Math.floor(rate * 0.06);
+  const overlap = Math.floor(grain / 2);
+  const step = grain - overlap;
+  const outLen = Math.floor(src.length / factor);
+  const out = audioCtx.createBuffer(1, outLen, rate);
+  const dst = out.getChannelData(0);
+  for (let outPos = 0; outPos < outLen; outPos += step) {
+    const srcPos = Math.floor(outPos * factor);
+    for (let i = 0; i < grain && outPos + i < outLen; i++) {
+      const w = i < overlap ? i / overlap : i >= grain - overlap ? (grain - i) / overlap : 1;
+      dst[outPos + i] += (src[Math.min(srcPos + i, src.length - 1)] || 0) * w;
+    }
+  }
+  return out;
+}
+
 async function applyEffect(buffer, fx, s = 0.6, custom) {
   let out = await applyPreset(buffer, fx, s);
-  if (custom) {
-    if (custom.semis) out = pitchShift(out, Math.pow(2, custom.semis / 12));
-    if (custom.dist > 0) {
-      const drive = 1 + 6 * custom.dist;
-      out = await renderFx(out, 0.1, (ctx, src) => {
-        const ws = ctx.createWaveShaper();
-        const curve = new Float32Array(256);
-        for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(drive * x); }
-        ws.curve = curve;
-        src.connect(ws).connect(ctx.destination);
-      });
-    }
-    if (custom.echo > 0) {
-      const e = custom.echo;
-      out = await renderFx(out, 1.6, (ctx, src) => {
-        const delay = ctx.createDelay(1); delay.delayTime.value = 0.25;
-        const fb = ctx.createGain(); fb.gain.value = 0.55 * e;
-        const wet = ctx.createGain(); wet.gain.value = 0.9 * e;
-        src.connect(ctx.destination);
-        src.connect(delay);
-        delay.connect(fb).connect(delay);
-        delay.connect(wet).connect(ctx.destination);
-      });
-    }
+  if (!custom) return out;
+
+  if (custom.speed && Math.abs(custom.speed - 1) > 0.02) out = timeStretch(out, custom.speed);
+  if (custom.semis) out = pitchShift(out, Math.pow(2, custom.semis / 12));
+
+  if (custom.tone || custom.bass) {
+    const t = custom.tone || 0, b = custom.bass || 0;
+    out = await renderFx(out, 0.1, (ctx, src) => {
+      let node = src;
+      if (t < 0) { // darker
+        const lp = ctx.createBiquadFilter(); lp.type = "lowpass"; lp.frequency.value = 6000 + t * 5400;
+        node.connect(lp); node = lp;
+      } else if (t > 0) { // brighter
+        const hs = ctx.createBiquadFilter(); hs.type = "highshelf"; hs.frequency.value = 2500; hs.gain.value = t * 14;
+        node.connect(hs); node = hs;
+      }
+      if (b) {
+        const ls = ctx.createBiquadFilter(); ls.type = "lowshelf"; ls.frequency.value = 200; ls.gain.value = b * 14;
+        node.connect(ls); node = ls;
+      }
+      node.connect(ctx.destination);
+    });
+  }
+
+  if (custom.dist > 0) {
+    const drive = 1 + 6 * custom.dist;
+    out = await renderFx(out, 0.1, (ctx, src) => {
+      const ws = ctx.createWaveShaper();
+      const curve = new Float32Array(256);
+      for (let i = 0; i < 256; i++) { const x = i / 128 - 1; curve[i] = Math.tanh(drive * x); }
+      ws.curve = curve;
+      src.connect(ws).connect(ctx.destination);
+    });
+  }
+
+  if (custom.shake > 0) { // trembling / scared
+    const sh = custom.shake;
+    out = await renderFx(out, 0.1, (ctx, src) => {
+      const trem = ctx.createGain(); trem.gain.value = 1 - 0.5 * sh;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 7;
+      const lfoG = ctx.createGain(); lfoG.gain.value = 0.5 * sh;
+      lfo.connect(lfoG).connect(trem.gain);
+      src.connect(trem).connect(ctx.destination);
+      lfo.start();
+    });
+  }
+
+  if (custom.wobble > 0) { // drunk / old man pitch wobble
+    const wob = custom.wobble;
+    out = await renderFx(out, 0.1, (ctx, src) => {
+      const delay = ctx.createDelay(0.06); delay.delayTime.value = 0.02;
+      const lfo = ctx.createOscillator(); lfo.frequency.value = 4.5;
+      const lfoG = ctx.createGain(); lfoG.gain.value = 0.012 * wob;
+      lfo.connect(lfoG).connect(delay.delayTime);
+      src.connect(delay).connect(ctx.destination);
+      lfo.start();
+    });
+  }
+
+  if (custom.echo > 0) {
+    const e = custom.echo;
+    out = await renderFx(out, 1.6, (ctx, src) => {
+      const delay = ctx.createDelay(1); delay.delayTime.value = 0.25;
+      const fb = ctx.createGain(); fb.gain.value = 0.55 * e;
+      const wet = ctx.createGain(); wet.gain.value = 0.9 * e;
+      src.connect(ctx.destination);
+      src.connect(delay);
+      delay.connect(fb).connect(delay);
+      delay.connect(wet).connect(ctx.destination);
+    });
+  }
+
+  if (custom.reverb > 0) { // room size
+    const r = custom.reverb;
+    out = await renderFx(out, 2.2, (ctx, src) => {
+      const conv = ctx.createConvolver(); conv.buffer = makeImpulse(ctx, 0.6 + 1.8 * r, 3);
+      const wet = ctx.createGain(); wet.gain.value = r;
+      src.connect(ctx.destination);
+      src.connect(conv).connect(wet).connect(ctx.destination);
+    });
+  }
+
+  if (custom.vol !== undefined && Math.abs(custom.vol - 1) > 0.02) {
+    const ch = out.getChannelData(0);
+    for (let i = 0; i < ch.length; i++)
+      ch[i] = Math.max(-1, Math.min(1, ch[i] * custom.vol));
   }
   return out;
 }
