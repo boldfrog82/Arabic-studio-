@@ -175,6 +175,15 @@
       <button class="ghostbtn small" id="addLine1">＋ Line for Character 1</button>
       <button class="ghostbtn small" id="addLine2">＋ Line for Character 2</button>
       <button class="ghostbtn small" id="loadSample">🎬 Load funny taxi sample</button>
+      <button class="small" id="togglePaste">📋 Paste whole script</button>
+    </div>
+    <div id="pasteBox" style="display:none;margin-top:10px;">
+      <label>Paste your full script — one line each, like: <b dir="rtl">البطل: [مستعجل] اركب بسرعة</b></label>
+      <textarea id="scriptPaste" rows="8" dir="auto" placeholder="البطل: [مستعجل] اركب بسرعة، بس لا تسأل عن صوت السيارة.
+الشيطان: [بارد] خذني إلى البوابة السوداء."></textarea>
+      <div class="actions">
+        <button class="small green" id="importScript">✓ Import script</button>
+      </div>
     </div>
   </div>
 
@@ -183,8 +192,8 @@
     <h2>4) Generate &amp; Download</h2>
     <div class="bigactions">
       <button id="genAll" class="">🎙️ Generate all voices</button>
-      <button id="playAll" class="ghostbtn" disabled>▶️ Play conversation</button>
-      <button id="dlAll" class="green" disabled>⬇️ Download conversation MP3</button>
+      <button id="playAll" class="ghostbtn">▶️ Play conversation</button>
+      <button id="dlAll" class="green">⬇️ Download conversation MP3</button>
     </div>
     <div class="hint">Each line also gets its own ▶ play and ⬇ MP3 button, so you can use single lines in your game too. Gap between lines:
       <select id="gapMs" style="width:auto;padding:4px 8px;">
@@ -199,7 +208,7 @@
   <details class="card" style="display:block;">
     <summary>❓ Help / Tips</summary>
     <div class="hint">
-      • <b>Expressive speech:</b> write emotion hints inside the text, like: <i>(laughing) No way!</i> or <i>(whispering) it's behind you...</i> — the AI acts them.<br>
+      • <b>Expressive speech:</b> write emotion hints inside the text, like: <i>(laughing) No way!</i> or <i dir="rtl">[مستعجل] اركب بسرعة</i> — the AI acts them. Both ( ) and [ ] work.<br>
       • <b>Arabic:</b> just type Arabic text, it works.<br>
       • <b>Effects</b> (robot, ghost, kid...) are applied on your device after the AI speaks, so they are 100% free.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
@@ -337,6 +346,42 @@ $("loadSample").onclick = () => {
   linesEl.innerHTML = "";
   for (const [sp, txt] of SAMPLE) addLine(String(sp), txt);
 };
+
+/* ---------- paste a whole script like "البطل: [مستعجل] اركب بسرعة" ---------- */
+$("togglePaste").onclick = () => {
+  const box = $("pasteBox");
+  box.style.display = box.style.display === "none" ? "block" : "none";
+  if (box.style.display === "block") $("scriptPaste").focus();
+};
+$("importScript").onclick = () => {
+  const names = [];
+  const parsed = [];
+  for (let line of $("scriptPaste").value.split("\n")) {
+    line = line.trim();
+    if (!line) continue;
+    const m = /^(.{1,30}?)\s*[::]\s*(.+)$/.exec(line);
+    if (m) {
+      let idx = names.indexOf(m[1]);
+      if (idx === -1 && names.length < 2) { names.push(m[1]); idx = names.length - 1; }
+      if (idx === -1) idx = 1; // any third name goes to character 2
+      parsed.push([idx + 1, m[2].trim()]);
+    } else if (parsed.length) {
+      parsed[parsed.length - 1][1] += " " + line; // continuation of previous line
+    }
+  }
+  if (!parsed.length) {
+    setStatus("err", "Could not read the script — write each line like:  Name: text");
+    return;
+  }
+  if (names[0]) $("s1name").value = names[0];
+  if (names[1]) $("s2name").value = names[1];
+  linesEl.innerHTML = "";
+  for (const [sp, txt] of parsed) addLine(String(sp), txt);
+  refreshNames();
+  invalidateConversation();
+  $("pasteBox").style.display = "none";
+  setStatus("ok", `✓ Imported ${parsed.length} lines for ${names.join(" + ")}. Now press 🎙️ Generate all voices.`);
+};
 // invalidate single lines when voice/effect changes
 for (const id of ["s1voice","s2voice","s1fx","s2fx"]) {
   $(id).addEventListener("change", () => {
@@ -354,8 +399,6 @@ function setLineState(div, kind, msg) {
 }
 function invalidateConversation() {
   conversationBuffer = null;
-  $("playAll").disabled = true;
-  $("dlAll").disabled = true;
 }
 function fileNameFor(div) {
   const name = div.dataset.speaker === "1" ? $("s1name").value : $("s2name").value;
@@ -601,8 +644,6 @@ $("genAll").onclick = async () => {
     }
     setStatus("", `<span class="spin"></span>Mixing the conversation...`);
     conversationBuffer = concatBuffers(divs.map(d => d._buffer), parseInt($("gapMs").value));
-    $("playAll").disabled = false;
-    $("dlAll").disabled = false;
     setStatus("ok", "✓ Done! Press ▶️ to listen or ⬇️ to download the MP3.");
   } catch (e) {
     setStatus("err", "Error: " + e.message);
@@ -611,8 +652,14 @@ $("genAll").onclick = async () => {
   }
 };
 
-$("playAll").onclick = () => playBuffer(conversationBuffer);
-$("dlAll").onclick = () => downloadBuffer(conversationBuffer, "conversation");
+$("playAll").onclick = () => {
+  if (!conversationBuffer) { setStatus("err", "First press 🎙️ Generate all voices (step 1 needs your free API key)."); return; }
+  playBuffer(conversationBuffer);
+};
+$("dlAll").onclick = () => {
+  if (!conversationBuffer) { setStatus("err", "First press 🎙️ Generate all voices (step 1 needs your free API key)."); return; }
+  downloadBuffer(conversationBuffer, "conversation");
+};
 
 function setStatus(kind, html) {
   const s = $("status");
