@@ -599,16 +599,28 @@ async function ttsConversationRequest(script, n1, v1, n2, v2, stylePrompt) {
 /* ============================================================
    Free OpenAI voices via pollinations.ai — no key needed.
    ============================================================ */
-async function freeTTS(text, voice) {
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function freeTTS(text, voice, onStatus) {
   const prompt =
     "Repeat exactly the following line and nothing else. " +
     "Words in [brackets] or (parentheses) describe the emotion — act them with your voice but never say them aloud:\n" + text;
-  const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai-audio&voice=${encodeURIComponent(voice)}`;
-  const res = await fetch(url);
-  if (!res.ok) throw new Error("Free voice server is busy (error " + res.status + ") — wait a few seconds and press Generate again.");
-  const ct = res.headers.get("content-type") || "";
-  if (!ct.includes("audio")) throw new Error("Free voice server returned no audio — try again in a moment.");
-  return await audioCtx.decodeAudioData(await res.arrayBuffer());
+  const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai-audio&voice=${encodeURIComponent(voice)}&referrer=arabicstudio`;
+  // the free server allows only one request every few seconds — wait and retry by itself
+  for (let attempt = 1; attempt <= 5; attempt++) {
+    const res = await fetch(url);
+    if (res.status === 429 || res.status === 502 || res.status === 503) {
+      const wait = 8 * attempt;
+      if (onStatus) onStatus(`⏳ free server busy — waiting ${wait}s, retry ${attempt}/5...`);
+      await sleep(wait * 1000);
+      continue;
+    }
+    if (!res.ok) throw new Error("Free voice server error " + res.status + " — try again in a moment.");
+    const ct = res.headers.get("content-type") || "";
+    if (!ct.includes("audio")) throw new Error("Free voice server returned no audio — try again in a moment.");
+    return await audioCtx.decodeAudioData(await res.arrayBuffer());
+  }
+  throw new Error("Free voice server is overloaded right now — wait a minute and try again, or switch to the Gemini engine.");
 }
 
 /* Gemini returns 16-bit PCM mono (usually 24000 Hz) */
@@ -793,7 +805,7 @@ async function generateLine(div) {
   const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
   setLineState(div, "busy", "⏳ generating...");
   if ($("engine").value === "free") {
-    div._raw = await freeTTS(text, voice);
+    div._raw = await freeTTS(text, voice, msg => setLineState(div, "busy", msg));
   } else {
     div._raw = await ttsRequest(text, voice, $("stylePrompt").value);
   }
@@ -813,10 +825,17 @@ $("genAll").onclick = async () => {
   $("genAll").disabled = true;
   invalidateConversation();
   try {
+    let madeOne = false;
     for (let i = 0; i < divs.length; i++) {
       if (divs[i]._ok && divs[i]._raw) continue; // already generated — don't waste quota
+      // the free server wants a pause between requests
+      if (madeOne && $("engine").value === "free") {
+        setStatus("", `<span class="spin"></span>Pausing 6s so the free server stays happy (line ${i + 1} of ${divs.length})...`);
+        await sleep(6000);
+      }
       setStatus("", `<span class="spin"></span>Generating line ${i + 1} of ${divs.length}...`);
       await generateLine(divs[i]);
+      madeOne = true;
     }
     setStatus("", `<span class="spin"></span>Mixing the conversation...`);
     conversationBuffer = concatBuffers(divs.map(d => d._buffer), parseInt($("gapMs").value));
