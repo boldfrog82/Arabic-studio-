@@ -107,6 +107,8 @@
   @keyframes sp { to { transform: rotate(360deg); } }
   audio { width: 100%; margin-top: 8px; height: 36px; }
   .speaker-config { border-left: 3px solid var(--accent); padding-left: 10px; margin-bottom: 12px; }
+  .fxgrid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-top: 6px; }
+  .fxgrid label { margin-bottom: 2px; }
   .speaker-config.s2 { border-left-color: var(--accent2); }
   [dir] textarea { unicode-bidi: plaintext; }
 </style>
@@ -162,20 +164,6 @@
           <input type="range" id="s1amt" min="0" max="100" value="60">
         </div>
       </div>
-      <div class="row">
-        <div>
-          <label>Pitch: <span id="s1pitchv">0</span></label>
-          <input type="range" id="s1pitch" min="-12" max="12" value="0">
-        </div>
-        <div>
-          <label>Echo: <span id="s1echov">0</span>%</label>
-          <input type="range" id="s1echo" min="0" max="100" value="0">
-        </div>
-        <div>
-          <label>Grit: <span id="s1distv">0</span>%</label>
-          <input type="range" id="s1dist" min="0" max="100" value="0">
-        </div>
-      </div>
     </div>
 
     <div class="speaker-config s2">
@@ -195,20 +183,6 @@
         <div>
           <label>Effect strength: <span id="s2amtv">60</span>%</label>
           <input type="range" id="s2amt" min="0" max="100" value="60">
-        </div>
-      </div>
-      <div class="row">
-        <div>
-          <label>Pitch: <span id="s2pitchv">0</span></label>
-          <input type="range" id="s2pitch" min="-12" max="12" value="0">
-        </div>
-        <div>
-          <label>Echo: <span id="s2echov">0</span>%</label>
-          <input type="range" id="s2echo" min="0" max="100" value="0">
-        </div>
-        <div>
-          <label>Grit: <span id="s2distv">0</span>%</label>
-          <input type="range" id="s2dist" min="0" max="100" value="0">
         </div>
       </div>
     </div>
@@ -438,6 +412,11 @@ function addLine(speaker, text = "") {
       <select class="linefx"></select>
       <input type="range" class="lineamt" min="0" max="100" value="60" style="flex:1;min-width:90px;">
     </div>
+    <div class="fxgrid">
+      <div><label>Pitch <span class="lpitchv">0</span></label><input type="range" class="lpitch" min="-12" max="12" value="0"></div>
+      <div><label>Echo <span class="lechov">0</span>%</label><input type="range" class="lecho" min="0" max="100" value="0"></div>
+      <div><label>Grit <span class="ldistv">0</span>%</label><input type="range" class="ldist" min="0" max="100" value="0"></div>
+    </div>
     <audio controls style="display:none"></audio>
   `;
   const ta = div.querySelector("textarea");
@@ -453,10 +432,15 @@ function addLine(speaker, text = "") {
   fillSelect(fxSel, [["inherit", "🎭 Use character's effect"], ...EFFECTS], "inherit");
   fxSel.addEventListener("change", () => reapplyLine(div).catch(e => setLineState(div, "err", e.message)));
   let lineFxTimer;
-  div.querySelector(".lineamt").addEventListener("input", () => {
-    clearTimeout(lineFxTimer);
-    lineFxTimer = setTimeout(() => reapplyLine(div).catch(e => setLineState(div, "err", e.message)), 350);
-  });
+  for (const cls of ["lineamt", "lpitch", "lecho", "ldist"]) {
+    const el = div.querySelector("." + cls);
+    el.addEventListener("input", () => {
+      const v = div.querySelector("." + cls + "v");
+      if (v) v.textContent = el.value;
+      clearTimeout(lineFxTimer);
+      lineFxTimer = setTimeout(() => reapplyLine(div).catch(e => setLineState(div, "err", e.message)), 350);
+    });
+  }
   div.querySelector(".dl").onclick = () => downloadBuffer(div._buffer, fileNameFor(div));
   div.querySelector("textarea").addEventListener("input", () => setLineState(div, "stale", "edited — regenerate"));
   linesEl.appendChild(div);
@@ -528,12 +512,11 @@ for (const id of ["s1voice","s2voice"]) {
 function effectStrength(sp) {
   return parseInt($(sp === "1" ? "s1amt" : "s2amt").value, 10) / 100;
 }
-function customFx(sp) {
-  const p = sp === "1" ? "s1" : "s2";
+function lineCustom(div) {
   return {
-    semis: parseInt($(p + "pitch").value, 10),
-    echo: parseInt($(p + "echo").value, 10) / 100,
-    dist: parseInt($(p + "dist").value, 10) / 100,
+    semis: parseInt(div.querySelector(".lpitch").value, 10),
+    echo: parseInt(div.querySelector(".lecho").value, 10) / 100,
+    dist: parseInt(div.querySelector(".ldist").value, 10) / 100,
   };
 }
 
@@ -541,9 +524,10 @@ function customFx(sp) {
 function lineFxParams(div) {
   const sp = div.dataset.speaker;
   const sel = div.querySelector(".linefx").value;
+  const custom = lineCustom(div);
   if (sel === "inherit")
-    return { fx: $(sp === "1" ? "s1fx" : "s2fx").value, s: effectStrength(sp), custom: customFx(sp) };
-  return { fx: sel, s: parseInt(div.querySelector(".lineamt").value, 10) / 100, custom: null };
+    return { fx: $(sp === "1" ? "s1fx" : "s2fx").value, s: effectStrength(sp), custom };
+  return { fx: sel, s: parseInt(div.querySelector(".lineamt").value, 10) / 100, custom };
 }
 function readyMsg(div) { return div._rec ? "✓ ready (your voice)" : "✓ ready"; }
 async function reapplyLine(div) {
@@ -597,24 +581,13 @@ async function reapplySpeaker(sp) {
   if (reapplyBusy) return;
   reapplyBusy = true;
   try {
-    const fx = $(sp === "1" ? "s1fx" : "s2fx").value;
-    const s = effectStrength(sp);
-    const custom = customFx(sp);
     let n = 0;
     for (const div of [...linesEl.children]) {
       if (div.dataset.speaker !== sp || !div._raw) continue;
       if (div.querySelector(".linefx").value !== "inherit") continue; // line has its own effect
-      setLineState(div, "busy", "⏳ applying effect...");
-      div._buffer = await applyEffect(div._raw, fx, s, custom);
-      const a = div.querySelector("audio");
-      a.src = URL.createObjectURL(bufferToWavBlob(div._buffer));
-      a.style.display = "block";
-      div.querySelector(".play").disabled = false;
-      div.querySelector(".dl").disabled = false;
-      setLineState(div, "ok", readyMsg(div));
+      await reapplyLine(div);
       n++;
     }
-    invalidateConversation();
     if (n) setStatus("ok", `✓ Effect updated on ${n} line(s) — free, no AI call. Press ▶ to hear it.`);
   } finally {
     reapplyBusy = false;
@@ -624,7 +597,7 @@ const reapplyTimers = {};
 for (const id of ["s1fx", "s2fx"]) {
   $(id).addEventListener("change", () => reapplySpeaker(id[1]).catch(e => setStatus("err", e.message)));
 }
-for (const id of ["s1amt", "s2amt", "s1pitch", "s2pitch", "s1echo", "s2echo", "s1dist", "s2dist"]) {
+for (const id of ["s1amt", "s2amt"]) {
   $(id).addEventListener("input", () => {
     $(id + "v").textContent = $(id).value;
     clearTimeout(reapplyTimers[id]);
