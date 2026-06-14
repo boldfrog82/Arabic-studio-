@@ -282,7 +282,7 @@
       • <b>🌊 Waveform editing:</b> after generating or recording, drag on the wave to select a part, then ✂️ <b>Trim</b> keeps only the selection, 🗑️ <b>Cut</b> removes it and joins the rest (splice out a mistake), ✃ <b>Split</b> breaks the line into two at your tap point, and 🔇 <b>Auto-trim silence</b> removes quiet gaps at the start and end. ▶ Selection previews the picked part, and ↶ Undo reverses any edit.<br>
       • <b>🩹 Clean-up (recordings):</b> <b>Fix clicks/pops</b> finds sudden sharp spikes (mic bumps, mouth clicks) and smooths them out automatically. For background hiss: select a flat, quiet part of the wave with no talking, press 📎 <b>Learn noise</b>, then 🧹 <b>Remove noise</b> to filter that hiss out of the whole line.<br>
       • <b>🚪 Noise gate (noisy places like a café):</b> turns the sound to silence whenever you're not talking, so background chatter only exists while you speak — and your voice covers it then. Hold the phone close to your mouth, then set the Gate level slider (start at -35 dB; if chatter still leaks in the pauses lower it toward -25 dB; if it cuts the start of your words raise it toward -45 dB) and press 🚪 Noise gate.<br>
-      • <b>🎧 AI clean voice (removes other people's voices):</b> the gate and noise removal can't remove kids/people talking <i>over</i> you — only an AI can. Press 🎧 AI clean voice to send the line to ElevenLabs' free voice-isolation AI, which strips background voices, echo and room noise and returns just your voice. Needs the free ElevenLabs key from section 5.<br>
+      • <b>🎧 AI clean voice (removes other voices + clinking):</b> the gate and noise removal can't remove kids/people talking <i>over</i> you, or knife/spoon/plate clinking that happens while you speak — only an AI can. Press 🎧 AI clean voice to send the line to ElevenLabs' free voice-isolation AI, which strips background voices, clinking, echo and room noise and returns just your voice. The first time, it asks you to paste a free ElevenLabs key (elevenlabs.io → sign up → Profile → API Keys) and remembers it.<br>
       • <b>↺ Reset FX:</b> if a line suddenly plays silent or weird, you probably nudged a slider (often Volume to 0). Press ↺ Reset FX on that line to put every effect/slider back to normal.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
       • <b>Quota saving:</b> already-generated lines are skipped, three different models are tried automatically (each has its own free limit), and 💰 ONE-request mode makes the whole conversation for the price of a single line.<br>
@@ -942,6 +942,15 @@ async function afterEdit(div) {
   div._sel = null;
   await reapplyLine(div).catch(e => setLineState(div, "err", e.message));
 }
+// get (or ask once for) the free ElevenLabs key used by AI clean voice + AI sound effects
+async function getElKey() {
+  let key = ($("elKey").value || "").trim() || lsGet("gvs_elkey") || "";
+  if (!key) {
+    key = (prompt("Paste your free ElevenLabs key (elevenlabs.io → sign up → Profile → API Keys).\nIt removes background voices, chatter, and clinking knives/spoons from your recording:") || "").trim();
+    if (key) { $("elKey").value = key; lsSet("gvs_elkey", key); }
+  }
+  return key;
+}
 function copyLineSettings(from, to) {
   for (const cls of ["linefx", "lineamt", "lpitch", "lspeed", "lvol", "lecho", "lrev", "ldist", "ltone", "lbass", "lshake", "lwob"]) {
     const a = from.querySelector("." + cls), b = to.querySelector("." + cls);
@@ -1078,8 +1087,8 @@ function wireWaveEditor(div) {
   };
   div.querySelector(".aiclean").onclick = async () => {
     if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
-    const key = $("elKey").value.trim();
-    if (!key) { setStatus("err", "AI clean needs your free ElevenLabs key — paste it in section 5 (Sound Effects). It removes background voices like kids/chatter."); return; }
+    const key = await getElKey();
+    if (!key) { setStatus("err", "AI clean needs a free ElevenLabs key. Get it at elevenlabs.io → sign up → Profile → API Keys, then press 🎧 AI clean voice again."); return; }
     stopLive();
     setStatus("", '<span class="spin"></span>AI is removing background voices &amp; noise (a few seconds)...');
     try {
