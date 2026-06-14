@@ -276,6 +276,7 @@
       • <b>🎤 Record:</b> every line also has a Record button — record your own voice with the microphone and all the same effects and sliders work on it. No AI, no quota, no internet needed.<br>
       • <b>🌊 Waveform editing:</b> after generating or recording, drag on the wave to select a part, then ✂️ <b>Trim</b> keeps only the selection, 🗑️ <b>Cut</b> removes it and joins the rest (splice out a mistake), ✃ <b>Split</b> breaks the line into two at your tap point, and 🔇 <b>Auto-trim silence</b> removes quiet gaps at the start and end. ▶ Selection previews the picked part, and ↶ Undo reverses any edit.<br>
       • <b>🩹 Clean-up (recordings):</b> <b>Fix clicks/pops</b> finds sudden sharp spikes (mic bumps, mouth clicks) and smooths them out automatically. For background hiss: select a flat, quiet part of the wave with no talking, press 📎 <b>Learn noise</b>, then 🧹 <b>Remove noise</b> to filter that hiss out of the whole line.<br>
+      • <b>🚪 Noise gate (noisy places like a café):</b> turns the sound to silence whenever you're not talking, so background chatter only exists while you speak — and your voice covers it then. Hold the phone close to your mouth, then set the Gate level slider (start at -35 dB; if chatter still leaks in the pauses lower it toward -25 dB; if it cuts the start of your words raise it toward -45 dB) and press 🚪 Noise gate.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
       • <b>Quota saving:</b> already-generated lines are skipped, three different models are tried automatically (each has its own free limit), and 💰 ONE-request mode makes the whole conversation for the price of a single line.<br>
       • Free plan limit: if you see "quota" errors, wait 1-2 minutes and try again — the daily limit resets every night.
@@ -459,7 +460,12 @@ function addLine(speaker, text = "") {
         <button class="ghostbtn small declick">🩹 Fix clicks/pops</button>
         <button class="ghostbtn small learn">📎 Learn noise</button>
         <button class="ghostbtn small denoise">🧹 Remove noise</button>
+        <button class="ghostbtn small gate">🚪 Noise gate</button>
         <button class="ghostbtn small undo" disabled>↶ Undo</button>
+      </div>
+      <div class="actions" style="margin-top:4px;align-items:center;">
+        <span style="font-size:.72rem;color:var(--muted)">Gate level <span class="gatev">-35</span> dB (lower = removes more)</span>
+        <input type="range" class="gatethr" min="-60" max="-15" value="-35" style="flex:1;min-width:120px;">
       </div>
     </div>
     <div class="line-top" style="margin-top:8px;">
@@ -869,6 +875,37 @@ function denoise(buf, profile, N, beta = 1.6, floorf = 0.08) {
   return res;
 }
 
+// noise gate: silence everything quieter than the threshold (kills chatter in pauses)
+function noiseGate(buf, thresholdDb = -35) {
+  const src = buf.getChannelData(0), n = buf.length, sr = buf.sampleRate;
+  const d = Float32Array.from(src);
+  const thresh = Math.pow(10, thresholdDb / 20);
+  // envelope follower: fast attack, slow release
+  const atk = Math.exp(-1 / (sr * 0.002));
+  const rel = Math.exp(-1 / (sr * 0.030));
+  const env = new Float32Array(n);
+  let e = 0;
+  for (let i = 0; i < n; i++) {
+    const a = Math.abs(d[i]);
+    e = a > e ? atk * e + (1 - atk) * a : rel * e + (1 - rel) * a;
+    env[i] = e;
+  }
+  // gate gain with hold time so short gaps between words don't slam shut
+  const hold = Math.floor(sr * 0.08);
+  const gOpen = Math.exp(-1 / (sr * 0.005));
+  const gClose = Math.exp(-1 / (sr * 0.060));
+  let g = 0, since = hold + 1;
+  const out = audioCtx.createBuffer(1, n, sr);
+  const o = out.getChannelData(0);
+  for (let i = 0; i < n; i++) {
+    if (env[i] >= thresh) since = 0; else since++;
+    const target = since <= hold ? 1 : 0;
+    g = target > g ? gOpen * g + (1 - gOpen) * target : gClose * g + (1 - gClose) * target;
+    o[i] = d[i] * g;
+  }
+  return out;
+}
+
 function pushUndo(div) {
   if (!div._raw) return;
   (div._undo = div._undo || []).push(div._raw);
@@ -995,6 +1032,18 @@ function wireWaveEditor(div) {
     div._raw = denoise(div._raw, div._noise, NR_N);
     await afterEdit(div);
     setStatus("ok", "✓ Background noise reduced.");
+  };
+  const gthr = div.querySelector(".gatethr");
+  gthr.addEventListener("input", () => div.querySelector(".gatev").textContent = gthr.value);
+  div.querySelector(".gate").onclick = async () => {
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    stopLive();
+    setStatus("", '<span class="spin"></span>Applying noise gate...');
+    await sleep(30);
+    pushUndo(div);
+    div._raw = noiseGate(div._raw, parseInt(gthr.value, 10));
+    await afterEdit(div);
+    setStatus("ok", `✓ Noise gate applied at ${gthr.value} dB. Too much/little? ↶ Undo, change the slider, try again.`);
   };
   div.querySelector(".split").onclick = async () => {
     if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
