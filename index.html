@@ -227,6 +227,11 @@
       <button id="playAll" class="ghostbtn">▶️ Play conversation</button>
       <button id="dlAll" class="green">⬇️ Download conversation MP3</button>
     </div>
+    <div id="timelineWrap" style="display:none;margin-top:12px;">
+      <label>🎬 Conversation timeline — tap a clip to jump to it &amp; hear it (press the button again to refresh after edits)</label>
+      <canvas id="timeline" height="84" style="width:100%;height:84px;display:block;background:#11141d;border:1px solid #2a2f3f;border-radius:8px;touch-action:none;"></canvas>
+    </div>
+    <button id="showTimeline" class="ghostbtn" style="margin-top:8px;">🎬 Show conversation timeline</button>
     <div class="hint">Each line also gets its own ▶ play and ⬇ MP3 button, so you can use single lines in your game too. Gap between lines:
       <select id="gapMs" style="width:auto;padding:4px 8px;">
         <option value="250">0.25s</option>
@@ -1816,6 +1821,72 @@ $("dlAll").onclick = () => {
   if (!conversationBuffer) { setStatus("err", "First press 🎙️ Generate all voices (step 1 needs your free API key)."); return; }
   downloadBuffer(conversationBuffer, "conversation");
 };
+
+/* ---------- conversation timeline: see all clips, tap one to edit it ---------- */
+let timelineSegs = [];
+function drawTimeline() {
+  const cv = $("timeline");
+  const ready = [...linesEl.children].filter(d => d._buffer);
+  if (!ready.length) {
+    $("timelineWrap").style.display = "none";
+    setStatus("err", "Generate or record some lines first, then show the timeline.");
+    return;
+  }
+  $("timelineWrap").style.display = "block";
+  const gap = parseInt($("gapMs").value) / 1000;
+  const total = ready.reduce((s, d) => s + d._buffer.duration, 0) + gap * (ready.length - 1);
+  const dpr = window.devicePixelRatio || 1;
+  const W = Math.max(1, cv.clientWidth || 320), H = 84;
+  cv.width = W * dpr; cv.height = H * dpr;
+  const ctx = cv.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+  ctx.fillStyle = "#11141d"; ctx.fillRect(0, 0, W, H);
+  const mid = H / 2;
+  let t = 0;
+  timelineSegs = [];
+  for (let ci = 0; ci < ready.length; ci++) {
+    const div = ready[ci], buf = div._buffer;
+    const x0 = (t / total) * W;
+    const x1 = ((t + buf.duration) / total) * W;
+    timelineSegs.push({ x0, x1, div });
+    const col = div.dataset.speaker === "1" ? "#7c5cff" : "#00d4a6";
+    // clip background band
+    ctx.fillStyle = div.dataset.speaker === "1" ? "rgba(124,92,255,0.08)" : "rgba(0,212,166,0.08)";
+    ctx.fillRect(x0, 0, x1 - x0, H);
+    // waveform
+    const data = buf.getChannelData(0), n = data.length;
+    const cols = Math.max(1, Math.floor(x1 - x0));
+    const step = n / cols;
+    ctx.strokeStyle = col; ctx.beginPath();
+    for (let x = 0; x < cols; x++) {
+      let mn = 1, mx = -1;
+      const i0 = Math.floor(x * step), i1 = Math.min(n, Math.floor((x + 1) * step));
+      for (let i = i0; i < i1; i++) { const v = data[i]; if (v < mn) mn = v; if (v > mx) mx = v; }
+      if (i1 <= i0) { mn = mx = data[Math.min(i0, n - 1)] || 0; }
+      const xx = x0 + x + 0.5;
+      ctx.moveTo(xx, mid - mx * mid * 0.9);
+      ctx.lineTo(xx, mid - mn * mid * 0.9);
+    }
+    ctx.stroke();
+    // clip number + separator
+    ctx.fillStyle = col; ctx.font = "11px sans-serif"; ctx.fillText(String(ci + 1), x0 + 3, 13);
+    if (ci) { ctx.strokeStyle = "#2a2f3f"; ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.stroke(); }
+    t += buf.duration + gap;
+  }
+}
+$("showTimeline").onclick = drawTimeline;
+$("timeline").addEventListener("pointerdown", e => {
+  const r = $("timeline").getBoundingClientRect();
+  const x = e.clientX - r.left;
+  const seg = timelineSegs.find(s => x >= s.x0 && x <= s.x1);
+  if (!seg) return;
+  seg.div.scrollIntoView({ behavior: "smooth", block: "center" });
+  seg.div.style.transition = "outline .2s";
+  seg.div.style.outline = "2px solid var(--accent2)";
+  setTimeout(() => seg.div.style.outline = "none", 1200);
+  if (seg.div._buffer) playBuffer(seg.div._buffer);
+});
 
 function setStatus(kind, html) {
   const s = $("status");
