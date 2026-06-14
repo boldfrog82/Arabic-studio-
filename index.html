@@ -282,6 +282,7 @@
       • <b>🌊 Waveform editing:</b> after generating or recording, drag on the wave to select a part, then ✂️ <b>Trim</b> keeps only the selection, 🗑️ <b>Cut</b> removes it and joins the rest (splice out a mistake), ✃ <b>Split</b> breaks the line into two at your tap point, and 🔇 <b>Auto-trim silence</b> removes quiet gaps at the start and end. ▶ Selection previews the picked part, and ↶ Undo reverses any edit.<br>
       • <b>🩹 Clean-up (recordings):</b> <b>Fix clicks/pops</b> finds sudden sharp spikes (mic bumps, mouth clicks) and smooths them out automatically. For background hiss: select a flat, quiet part of the wave with no talking, press 📎 <b>Learn noise</b>, then 🧹 <b>Remove noise</b> to filter that hiss out of the whole line.<br>
       • <b>🚪 Noise gate (noisy places like a café):</b> turns the sound to silence whenever you're not talking, so background chatter only exists while you speak — and your voice covers it then. Hold the phone close to your mouth, then set the Gate level slider (start at -35 dB; if chatter still leaks in the pauses lower it toward -25 dB; if it cuts the start of your words raise it toward -45 dB) and press 🚪 Noise gate.<br>
+      • <b>🤖 AI denoise (free):</b> an open-source AI noise model (RNNoise) that runs on your own device — free, no key, no account. Best for steady café noise: hiss, hum, fans, and cutlery clatter. It loads from the internet the first time, then works. It's lighter than the paid option, so for lots of people talking over you, 🎧 AI clean voice is stronger.<br>
       • <b>🎧 AI clean voice (removes other voices + clinking):</b> the gate and noise removal can't remove kids/people talking <i>over</i> you, or knife/spoon/plate clinking that happens while you speak — only an AI can. Press 🎧 AI clean voice to send the line to ElevenLabs' free voice-isolation AI, which strips background voices, clinking, echo and room noise and returns just your voice. The first time, it asks you to paste a free ElevenLabs key (elevenlabs.io → sign up → Profile → API Keys) and remembers it.<br>
       • <b>↺ Reset FX:</b> if a line suddenly plays silent or weird, you probably nudged a slider (often Volume to 0). Press ↺ Reset FX on that line to put every effect/slider back to normal.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
@@ -469,6 +470,7 @@ function addLine(speaker, text = "") {
         <button class="ghostbtn small learn">📎 Learn noise</button>
         <button class="ghostbtn small denoise">🧹 Remove noise</button>
         <button class="ghostbtn small gate">🚪 Noise gate</button>
+        <button class="ghostbtn small rnnoise">🤖 AI denoise (free)</button>
         <button class="ghostbtn small aiclean">🎧 AI clean voice</button>
         <button class="ghostbtn small undo" disabled>↶ Undo</button>
       </div>
@@ -931,6 +933,37 @@ function noiseGate(buf, thresholdDb = -35) {
   return out;
 }
 
+/* free open-source AI denoiser (RNNoise) running in the browser, no key/server */
+let _rnnoiseP = null;
+function loadRnnoise() {
+  if (_rnnoiseP) return _rnnoiseP;
+  _rnnoiseP = (async () => {
+    const mod = await import("https://esm.sh/@shiguredo/rnnoise-wasm@2024.1.0");
+    return await mod.Rnnoise.load();
+  })().catch(e => { _rnnoiseP = null; throw e; });
+  return _rnnoiseP;
+}
+async function denoiseRNNoise(buf) {
+  const rn = await loadRnnoise();
+  const work = resampleBuffer(buf, 48000);   // RNNoise needs 48 kHz
+  const src = work.getChannelData(0);
+  const N = rn.frameSize || 480;
+  const state = rn.createDenoiseState();
+  const out = new Float32Array(src.length);
+  const frame = new Float32Array(N);
+  try {
+    for (let p = 0; p < src.length; p += N) {
+      const len = Math.min(N, src.length - p);
+      for (let i = 0; i < N; i++) frame[i] = (i < len ? src[p + i] : 0) * 32767;
+      state.processFrame(frame);
+      for (let i = 0; i < len; i++) { const v = frame[i] / 32767; out[p + i] = v > 1 ? 1 : v < -1 ? -1 : v; }
+    }
+  } finally { state.destroy(); }
+  const res = audioCtx.createBuffer(1, out.length, 48000);
+  res.getChannelData(0).set(out);
+  return res;
+}
+
 function pushUndo(div) {
   if (!div._raw) return;
   (div._undo = div._undo || []).push(div._raw);
@@ -1084,6 +1117,21 @@ function wireWaveEditor(div) {
     div._raw = noiseGate(div._raw, parseInt(gthr.value, 10));
     await afterEdit(div);
     setStatus("ok", `✓ Noise gate applied at ${gthr.value} dB. Too much/little? ↶ Undo, change the slider, try again.`);
+  };
+  div.querySelector(".rnnoise").onclick = async () => {
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    stopLive();
+    setStatus("", '<span class="spin"></span>Free AI removing background noise (loading the first time)...');
+    try {
+      const cleaned = await denoiseRNNoise(div._raw);
+      pushUndo(div);
+      div._raw = cleaned;
+      await afterEdit(div);
+      setStatus("ok", "✓ Free AI denoise done (on your device). For heavy chatter/voices try 🎧 AI clean voice.");
+    } catch (e) {
+      setStatus("err", "Free AI denoise couldn't load here (needs internet the first time). Try again, or use 🎧 AI clean voice. " + (e.message || ""));
+      setLineState(div, "ok", readyMsg(div));
+    }
   };
   div.querySelector(".aiclean").onclick = async () => {
     if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
