@@ -275,6 +275,7 @@
       • <b>Effects</b> (robot, ghost, devil...) are applied on your device after the AI speaks, so they are 100% free. The Pitch / Echo / Grit sliders stack on top of any preset.<br>
       • <b>🎤 Record:</b> every line also has a Record button — record your own voice with the microphone and all the same effects and sliders work on it. No AI, no quota, no internet needed.<br>
       • <b>🌊 Waveform editing:</b> after generating or recording, drag on the wave to select a part, then ✂️ <b>Trim</b> keeps only the selection, 🗑️ <b>Cut</b> removes it and joins the rest (splice out a mistake), ✃ <b>Split</b> breaks the line into two at your tap point, and 🔇 <b>Auto-trim silence</b> removes quiet gaps at the start and end. ▶ Selection previews the picked part, and ↶ Undo reverses any edit.<br>
+      • <b>🩹 Clean-up (recordings):</b> <b>Fix clicks/pops</b> finds sudden sharp spikes (mic bumps, mouth clicks) and smooths them out automatically. For background hiss: select a flat, quiet part of the wave with no talking, press 📎 <b>Learn noise</b>, then 🧹 <b>Remove noise</b> to filter that hiss out of the whole line.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
       • <b>Quota saving:</b> already-generated lines are skipped, three different models are tried automatically (each has its own free limit), and 💰 ONE-request mode makes the whole conversation for the price of a single line.<br>
       • Free plan limit: if you see "quota" errors, wait 1-2 minutes and try again — the daily limit resets every night.
@@ -455,6 +456,9 @@ function addLine(speaker, text = "") {
         <button class="ghostbtn small cut">🗑️ Cut selection</button>
         <button class="ghostbtn small split">✃ Split here</button>
         <button class="ghostbtn small hush">🔇 Auto-trim silence</button>
+        <button class="ghostbtn small declick">🩹 Fix clicks/pops</button>
+        <button class="ghostbtn small learn">📎 Learn noise</button>
+        <button class="ghostbtn small denoise">🧹 Remove noise</button>
         <button class="ghostbtn small undo" disabled>↶ Undo</button>
       </div>
     </div>
@@ -727,6 +731,140 @@ function autoTrim(buf, threshold = 0.015) {
   return out;
 }
 
+/* ---- clean-up DSP: declick + learn-noise / noise reduction ---- */
+const NR_N = 1024; // FFT size for noise reduction
+
+// in-place iterative radix-2 FFT (inverse when inv=true)
+function fft(re, im, inv) {
+  const n = re.length;
+  for (let i = 1, j = 0; i < n; i++) {
+    let bit = n >> 1;
+    for (; j & bit; bit >>= 1) j ^= bit;
+    j ^= bit;
+    if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; }
+  }
+  for (let len = 2; len <= n; len <<= 1) {
+    const ang = (inv ? 2 : -2) * Math.PI / len;
+    const wr = Math.cos(ang), wi = Math.sin(ang);
+    for (let i = 0; i < n; i += len) {
+      let cr = 1, ci = 0;
+      for (let k = 0; k < len >> 1; k++) {
+        const p = i + k, q = i + k + (len >> 1);
+        const vr = re[q] * cr - im[q] * ci;
+        const vi = re[q] * ci + im[q] * cr;
+        re[q] = re[p] - vr; im[q] = im[p] - vi;
+        re[p] += vr; im[p] += vi;
+        const ncr = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = ncr;
+      }
+    }
+  }
+  if (inv) for (let i = 0; i < n; i++) { re[i] /= n; im[i] /= n; }
+}
+
+const _hannCache = {};
+function hann(N) {
+  if (_hannCache[N]) return _hannCache[N];
+  const w = new Float64Array(N);
+  for (let i = 0; i < N; i++) w[i] = 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1));
+  return _hannCache[N] = w;
+}
+
+function medianAbs(arr) {
+  const step = Math.max(1, Math.floor(arr.length / 50000));
+  const tmp = [];
+  for (let i = 0; i < arr.length; i += step) tmp.push(arr[i]);
+  tmp.sort((a, b) => a - b);
+  return tmp[tmp.length >> 1] || 0;
+}
+
+// find sudden sharp jumps (clicks/pops) and interpolate across them
+function declick(buf, sensitivity = 7) {
+  const n = buf.length;
+  if (n < 8) return { buf, count: 0 };
+  const d = Float32Array.from(buf.getChannelData(0));
+  const diff = new Float32Array(n);
+  for (let i = 1; i < n; i++) diff[i] = Math.abs(d[i] - d[i - 1]);
+  const mad = 1.4826 * medianAbs(diff);
+  const T = Math.max(sensitivity * mad, 0.02);
+  const W = Math.max(1, Math.floor(buf.sampleRate * 0.0008));
+  const mask = new Uint8Array(n);
+  let any = false;
+  for (let i = 1; i < n; i++) if (diff[i] > T) {
+    for (let j = Math.max(0, i - W); j <= Math.min(n - 1, i + W); j++) mask[j] = 1;
+    any = true;
+  }
+  if (!any) return { buf, count: 0 };
+  let count = 0, i = 0;
+  while (i < n) {
+    if (!mask[i]) { i++; continue; }
+    const s = i; while (i < n && mask[i]) i++;
+    const e = i - 1;
+    const left = s > 0 ? d[s - 1] : 0;
+    const right = e < n - 1 ? d[e + 1] : 0;
+    const span = e - s + 2;
+    for (let k = s; k <= e; k++) d[k] = left + (right - left) * ((k - (s - 1)) / span);
+    count++;
+  }
+  const res = audioCtx.createBuffer(1, n, buf.sampleRate);
+  res.getChannelData(0).set(d);
+  return { buf: res, count };
+}
+
+// learn the average noise spectrum from a (quiet) selection
+function noiseProfile(buf, aFrac, bFrac, N) {
+  const d = buf.getChannelData(0), len = buf.length;
+  const a = Math.max(0, Math.floor(aFrac * len));
+  const b = Math.min(len, Math.floor(bFrac * len));
+  const win = hann(N);
+  const re = new Float64Array(N), im = new Float64Array(N), mag = new Float64Array(N);
+  let frames = 0;
+  for (let p = a; p + N <= b; p += N >> 1) {
+    for (let i = 0; i < N; i++) { re[i] = (d[p + i] || 0) * win[i]; im[i] = 0; }
+    fft(re, im, false);
+    for (let k = 0; k < N; k++) mag[k] += Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+    frames++;
+  }
+  if (frames === 0) { // selection shorter than one frame — use what we have
+    for (let i = 0; i < N; i++) { re[i] = (d[a + i] || 0) * win[i]; im[i] = 0; }
+    fft(re, im, false);
+    for (let k = 0; k < N; k++) mag[k] = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+    frames = 1;
+  }
+  for (let k = 0; k < N; k++) mag[k] /= frames;
+  return mag;
+}
+
+// spectral subtraction: remove the learned noise from the whole track
+function denoise(buf, profile, N, beta = 1.6, floorf = 0.08) {
+  const d = buf.getChannelData(0), len = buf.length;
+  const hop = N >> 2, win = hann(N);
+  const out = new Float64Array(len + N), norm = new Float64Array(len + N);
+  const re = new Float64Array(N), im = new Float64Array(N);
+  for (let p = 0; p < len; p += hop) {
+    for (let i = 0; i < N; i++) { const idx = p + i; re[i] = (idx < len ? d[idx] : 0) * win[i]; im[i] = 0; }
+    fft(re, im, false);
+    for (let k = 0; k < N; k++) {
+      const m = Math.sqrt(re[k] * re[k] + im[k] * im[k]);
+      if (m > 0) {
+        let sub = m - beta * profile[k];
+        const fl = floorf * m;
+        if (sub < fl) sub = fl;
+        const g = sub / m;
+        re[k] *= g; im[k] *= g;
+      }
+    }
+    fft(re, im, true);
+    for (let i = 0; i < N; i++) { out[p + i] += re[i] * win[i]; norm[p + i] += win[i] * win[i]; }
+  }
+  const res = audioCtx.createBuffer(1, len, buf.sampleRate);
+  const o = res.getChannelData(0);
+  for (let i = 0; i < len; i++) {
+    let v = norm[i] > 1e-6 ? out[i] / norm[i] : 0;
+    o[i] = v > 1 ? 1 : v < -1 ? -1 : v;
+  }
+  return res;
+}
+
 function pushUndo(div) {
   if (!div._raw) return;
   (div._undo = div._undo || []).push(div._raw);
@@ -802,6 +940,41 @@ function wireWaveEditor(div) {
     div._raw = div._undo.pop();
     if (!div._undo.length) div.querySelector(".undo").disabled = true;
     await afterEdit(div);
+  };
+  div.querySelector(".declick").onclick = async () => {
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    stopLive();
+    setStatus("", '<span class="spin"></span>Finding clicks &amp; pops...');
+    await sleep(30);
+    pushUndo(div);
+    const r = declick(div._raw);
+    div._raw = r.buf;
+    await afterEdit(div);
+    setStatus(r.count ? "ok" : "", r.count ? `✓ Fixed ${r.count} click(s)/pop(s).` : "No clicks or pops found.");
+  };
+  div.querySelector(".learn").onclick = () => {
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    const s = div._sel;
+    if (!s || s.b - s.a < 0.005) {
+      setStatus("err", "Select a quiet part of the wave (only background hiss, no talking), then press 📎 Learn noise.");
+      return;
+    }
+    div._noise = noiseProfile(div._raw, s.a, s.b, NR_N);
+    setStatus("ok", "✓ Learned the background noise. Now press 🧹 Remove noise.");
+  };
+  div.querySelector(".denoise").onclick = async () => {
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    if (!div._noise) {
+      setStatus("err", "First select a quiet part (only hiss) and press 📎 Learn noise.");
+      return;
+    }
+    stopLive();
+    setStatus("", '<span class="spin"></span>Removing background noise...');
+    await sleep(30);
+    pushUndo(div);
+    div._raw = denoise(div._raw, div._noise, NR_N);
+    await afterEdit(div);
+    setStatus("ok", "✓ Background noise reduced.");
   };
   div.querySelector(".split").onclick = async () => {
     if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
