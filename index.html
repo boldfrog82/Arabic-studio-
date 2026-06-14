@@ -788,36 +788,41 @@ function medianAbs(arr) {
 }
 
 // find sudden sharp jumps (clicks/pops) and interpolate across them
-function declick(buf, sensitivity = 7) {
+// conservative declick: only fix isolated sharp spikes, replace each with the
+// local median value. Refuses to run if it would touch too much (= not clicks).
+function declick(buf, sensitivity = 12) {
   const n = buf.length;
   if (n < 8) return { buf, count: 0 };
-  const d = Float32Array.from(buf.getChannelData(0));
-  const diff = new Float32Array(n);
-  for (let i = 1; i < n; i++) diff[i] = Math.abs(d[i] - d[i - 1]);
-  const mad = 1.4826 * medianAbs(diff);
-  const T = Math.max(sensitivity * mad, 0.02);
-  const W = Math.max(1, Math.floor(buf.sampleRate * 0.0008));
-  const mask = new Uint8Array(n);
-  let any = false;
-  for (let i = 1; i < n; i++) if (diff[i] > T) {
-    for (let j = Math.max(0, i - W); j <= Math.min(n - 1, i + W); j++) mask[j] = 1;
-    any = true;
+  const d = buf.getChannelData(0);
+  const out = Float32Array.from(d);
+  // 5-sample median baseline (impulses vanish, real signal survives)
+  const med = new Float32Array(n);
+  const w = new Float32Array(5);
+  for (let i = 0; i < n; i++) {
+    const i0 = Math.max(0, i - 2), i1 = Math.min(n - 1, i + 2);
+    let c = 0;
+    for (let j = i0; j <= i1; j++) w[c++] = d[j];
+    for (let a = 1; a < c; a++) { const v = w[a]; let b = a - 1; while (b >= 0 && w[b] > v) { w[b + 1] = w[b]; b--; } w[b + 1] = v; }
+    med[i] = w[c >> 1];
   }
-  if (!any) return { buf, count: 0 };
+  const res = new Float32Array(n);
+  for (let i = 0; i < n; i++) res[i] = Math.abs(d[i] - med[i]);
+  const scale = 1.4826 * medianAbs(res);
+  const T = Math.max(sensitivity * scale, 0.05);
+  const mask = new Uint8Array(n);
+  let flagged = 0;
+  for (let i = 0; i < n; i++) if (res[i] > T) { mask[i] = 1; flagged++; }
+  if (flagged === 0) return { buf, count: 0 };
+  if (flagged > n * 0.04) return { buf, count: -1 }; // too much → this isn't click noise, refuse
   let count = 0, i = 0;
   while (i < n) {
     if (!mask[i]) { i++; continue; }
-    const s = i; while (i < n && mask[i]) i++;
-    const e = i - 1;
-    const left = s > 0 ? d[s - 1] : 0;
-    const right = e < n - 1 ? d[e + 1] : 0;
-    const span = e - s + 2;
-    for (let k = s; k <= e; k++) d[k] = left + (right - left) * ((k - (s - 1)) / span);
+    while (i < n && mask[i]) { out[i] = med[i]; i++; }  // replace spike with local median
     count++;
   }
-  const res = audioCtx.createBuffer(1, n, buf.sampleRate);
-  res.getChannelData(0).set(d);
-  return { buf: res, count };
+  const r = audioCtx.createBuffer(1, n, buf.sampleRate);
+  r.getChannelData(0).set(out);
+  return { buf: r, count };
 }
 
 // learn the average noise spectrum from a (quiet) selection
@@ -1003,11 +1008,17 @@ function wireWaveEditor(div) {
     stopLive();
     setStatus("", '<span class="spin"></span>Finding clicks &amp; pops...');
     await sleep(30);
-    pushUndo(div);
     const r = declick(div._raw);
+    if (r.count === -1) {
+      setStatus("err", "This doesn't look like clicks — Fix clicks/pops only removes occasional sharp spikes, not constant noise. For café noise use 🚪 Noise gate, or 📎 Learn noise → 🧹 Remove noise.");
+      setLineState(div, "ok", readyMsg(div));
+      return;
+    }
+    if (r.count === 0) { setStatus("", "No clicks or pops found."); setLineState(div, "ok", readyMsg(div)); return; }
+    pushUndo(div);
     div._raw = r.buf;
     await afterEdit(div);
-    setStatus(r.count ? "ok" : "", r.count ? `✓ Fixed ${r.count} click(s)/pop(s).` : "No clicks or pops found.");
+    setStatus("ok", `✓ Fixed ${r.count} click(s)/pop(s).`);
   };
   div.querySelector(".learn").onclick = () => {
     if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
