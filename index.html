@@ -941,40 +941,50 @@ let _rnnoiseP = null;
 function loadRnnoise() {
   if (_rnnoiseP) return _rnnoiseP;
   _rnnoiseP = (async () => {
-    const base = "https://esm.sh/@jitsi/rnnoise-wasm@0.2.1";
-    const mod = await import(/* @vite-ignore */ base);
-    const factory = mod.createRNNWasmModule || mod.default || mod.createRNNWasmModuleSync;
-    if (!factory) throw new Error("RNNoise module not found");
-    const m = await factory({ locateFile: f => base + "/dist/" + f });
-    return m;
+    const attempts = [
+      async () => { const b = "https://cdn.jsdelivr.net/npm/@jitsi/rnnoise-wasm"; const mod = await import(b + "/+esm"); const f = mod.createRNNWasmModule || mod.default || mod.createRNNWasmModuleSync; const m = await f({ locateFile: x => b + "/dist/" + x }); return { type: "jitsi", m }; },
+      async () => { const b = "https://esm.sh/@jitsi/rnnoise-wasm"; const mod = await import(b); const f = mod.createRNNWasmModule || mod.default || mod.createRNNWasmModuleSync; const m = await f({ locateFile: x => b + "/dist/" + x }); return { type: "jitsi", m }; },
+      async () => { const mod = await import("https://esm.sh/@shiguredo/rnnoise-wasm"); const rn = await mod.Rnnoise.load(); return { type: "shiguredo", rn }; },
+    ];
+    let lastErr;
+    for (const a of attempts) { try { return await a(); } catch (e) { lastErr = e; } }
+    throw lastErr || new Error("no source worked");
   })().catch(e => { _rnnoiseP = null; throw e; });
   return _rnnoiseP;
 }
 async function denoiseRNNoise(buf) {
-  const m = await withTimeout(loadRnnoise(), 30000, "loading the AI model");
+  const eng = await withTimeout(loadRnnoise(), 30000, "loading the AI model");
   const work = resampleBuffer(buf, 48000);   // RNNoise needs 48 kHz
   const src = work.getChannelData(0);
   const N = 480;
-  const ctx = m._rnnoise_create(0);
-  const ptr = m._malloc(N * 4);
   const out = new Float32Array(src.length);
   const frame = new Float32Array(N);
-  try {
-    for (let p = 0; p < src.length; p += N) {
-      const len = Math.min(N, src.length - p);
-      for (let i = 0; i < N; i++) frame[i] = (i < len ? src[p + i] : 0) * 32768;
-      m.HEAPF32.set(frame, ptr >> 2);
-      m._rnnoise_process_frame(ctx, ptr, ptr);
-      const res = m.HEAPF32.subarray(ptr >> 2, (ptr >> 2) + N);
-      for (let i = 0; i < len; i++) { const v = res[i] / 32768; out[p + i] = v > 1 ? 1 : v < -1 ? -1 : v; }
-    }
-  } finally {
-    m._free(ptr);
-    m._rnnoise_destroy(ctx);
+  if (eng.type === "jitsi") {
+    const m = eng.m, ctx = m._rnnoise_create(0), ptr = m._malloc(N * 4);
+    try {
+      for (let p = 0; p < src.length; p += N) {
+        const len = Math.min(N, src.length - p);
+        for (let i = 0; i < N; i++) frame[i] = (i < len ? src[p + i] : 0) * 32768;
+        m.HEAPF32.set(frame, ptr >> 2);
+        m._rnnoise_process_frame(ctx, ptr, ptr);
+        const r = m.HEAPF32.subarray(ptr >> 2, (ptr >> 2) + N);
+        for (let i = 0; i < len; i++) { const v = r[i] / 32768; out[p + i] = v > 1 ? 1 : v < -1 ? -1 : v; }
+      }
+    } finally { m._free(ptr); m._rnnoise_destroy(ctx); }
+  } else {
+    const rn = eng.rn, st = rn.createDenoiseState();
+    try {
+      for (let p = 0; p < src.length; p += N) {
+        const len = Math.min(N, src.length - p);
+        for (let i = 0; i < N; i++) frame[i] = (i < len ? src[p + i] : 0) * 32768;
+        st.processFrame(frame);
+        for (let i = 0; i < len; i++) { const v = frame[i] / 32768; out[p + i] = v > 1 ? 1 : v < -1 ? -1 : v; }
+      }
+    } finally { st.destroy(); }
   }
-  const r = audioCtx.createBuffer(1, out.length, 48000);
-  r.getChannelData(0).set(out);
-  return r;
+  const res = audioCtx.createBuffer(1, out.length, 48000);
+  res.getChannelData(0).set(out);
+  return res;
 }
 
 function pushUndo(div) {
