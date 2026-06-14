@@ -282,6 +282,8 @@
       • <b>🌊 Waveform editing:</b> after generating or recording, drag on the wave to select a part, then ✂️ <b>Trim</b> keeps only the selection, 🗑️ <b>Cut</b> removes it and joins the rest (splice out a mistake), ✃ <b>Split</b> breaks the line into two at your tap point, and 🔇 <b>Auto-trim silence</b> removes quiet gaps at the start and end. ▶ Selection previews the picked part, and ↶ Undo reverses any edit.<br>
       • <b>🩹 Clean-up (recordings):</b> <b>Fix clicks/pops</b> finds sudden sharp spikes (mic bumps, mouth clicks) and smooths them out automatically. For background hiss: select a flat, quiet part of the wave with no talking, press 📎 <b>Learn noise</b>, then 🧹 <b>Remove noise</b> to filter that hiss out of the whole line.<br>
       • <b>🚪 Noise gate (noisy places like a café):</b> turns the sound to silence whenever you're not talking, so background chatter only exists while you speak — and your voice covers it then. Hold the phone close to your mouth, then set the Gate level slider (start at -35 dB; if chatter still leaks in the pauses lower it toward -25 dB; if it cuts the start of your words raise it toward -45 dB) and press 🚪 Noise gate.<br>
+      • <b>🎧 AI clean voice (removes other people's voices):</b> the gate and noise removal can't remove kids/people talking <i>over</i> you — only an AI can. Press 🎧 AI clean voice to send the line to ElevenLabs' free voice-isolation AI, which strips background voices, echo and room noise and returns just your voice. Needs the free ElevenLabs key from section 5.<br>
+      • <b>↺ Reset FX:</b> if a line suddenly plays silent or weird, you probably nudged a slider (often Volume to 0). Press ↺ Reset FX on that line to put every effect/slider back to normal.<br>
       • If MP3 download fails (no internet for the encoder), you automatically get a WAV file instead — also works in all game engines.<br>
       • <b>Quota saving:</b> already-generated lines are skipped, three different models are tried automatically (each has its own free limit), and 💰 ONE-request mode makes the whole conversation for the price of a single line.<br>
       • Free plan limit: if you see "quota" errors, wait 1-2 minutes and try again — the daily limit resets every night.
@@ -452,6 +454,7 @@ function addLine(speaker, text = "") {
       <button class="ghostbtn small loop">🔁 Loop</button>
       <button class="ghostbtn small play" disabled>▶ Play</button>
       <button class="ghostbtn small dl" disabled>⬇ MP3</button>
+      <button class="ghostbtn small resetfx" title="Reset all effects/sliders for this line">↺ Reset FX</button>
     </div>
     <div class="wavewrap" style="display:none;">
       <div class="wavehint">Drag to select · then drag either green handle to move each side · tap to set a split point</div>
@@ -466,6 +469,7 @@ function addLine(speaker, text = "") {
         <button class="ghostbtn small learn">📎 Learn noise</button>
         <button class="ghostbtn small denoise">🧹 Remove noise</button>
         <button class="ghostbtn small gate">🚪 Noise gate</button>
+        <button class="ghostbtn small aiclean">🎧 AI clean voice</button>
         <button class="ghostbtn small undo" disabled>↶ Undo</button>
       </div>
       <div class="actions" style="margin-top:4px;align-items:center;">
@@ -499,7 +503,18 @@ function addLine(speaker, text = "") {
   div.querySelector(".down").onclick = () => { if (div.nextElementSibling) linesEl.insertBefore(div.nextElementSibling, div); invalidateConversation(); };
   div.querySelector(".gen").onclick = () => generateLine(div).catch(e => setLineState(div, "err", e.message));
   div.querySelector(".rec").onclick = () => toggleRecord(div, div.querySelector(".rec"));
-  div.querySelector(".play").onclick = () => playBuffer(div._buffer);
+  div.querySelector(".play").onclick = () => playBuffer(div._buffer || div._raw);
+  div.querySelector(".resetfx").onclick = async () => {
+    stopLive();
+    div.querySelector(".linefx").value = "inherit";
+    const defs = { lineamt: 60, lpitch: 0, lspeed: 100, lvol: 100, lecho: 0, lrev: 0, ldist: 0, ltone: 0, lbass: 0, lshake: 0, lwob: 0 };
+    for (const cls in defs) {
+      const el = div.querySelector("." + cls);
+      if (el) { el.value = defs[cls]; const lab = div.querySelector("." + cls + "v"); if (lab) lab.textContent = defs[cls]; }
+    }
+    if (div._raw) await reapplyLine(div).catch(e => setLineState(div, "err", e.message));
+    setStatus("ok", "✓ Effects reset for this line.");
+  };
   const fxSel = div.querySelector(".linefx");
   fillSelect(fxSel, [["inherit", "🎭 Use character's effect"], ...EFFECTS], "inherit");
   const rerenderKeepingLoop = async () => {
@@ -1060,6 +1075,35 @@ function wireWaveEditor(div) {
     div._raw = noiseGate(div._raw, parseInt(gthr.value, 10));
     await afterEdit(div);
     setStatus("ok", `✓ Noise gate applied at ${gthr.value} dB. Too much/little? ↶ Undo, change the slider, try again.`);
+  };
+  div.querySelector(".aiclean").onclick = async () => {
+    if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
+    const key = $("elKey").value.trim();
+    if (!key) { setStatus("err", "AI clean needs your free ElevenLabs key — paste it in section 5 (Sound Effects). It removes background voices like kids/chatter."); return; }
+    stopLive();
+    setStatus("", '<span class="spin"></span>AI is removing background voices &amp; noise (a few seconds)...');
+    try {
+      const fd = new FormData();
+      fd.append("audio", bufferToWavBlob(div._raw), "voice.wav");
+      const res = await fetch("https://api.elevenlabs.io/v1/audio-isolation", {
+        method: "POST", headers: { "xi-api-key": key }, body: fd
+      });
+      if (!res.ok) {
+        let msg = res.statusText;
+        try { const j = await res.json(); msg = (j.detail && (j.detail.message || j.detail.status)) || msg; } catch {}
+        if (res.status === 401) msg = "key not accepted — copy it again from elevenlabs.io → API Keys";
+        if (res.status === 429) msg = "free monthly credits finished — they renew next month";
+        throw new Error(msg);
+      }
+      const cleaned = await audioCtx.decodeAudioData(await res.arrayBuffer());
+      pushUndo(div);
+      div._raw = cleaned;
+      await afterEdit(div);
+      setStatus("ok", "✓ AI cleaned — background voices and noise removed. ↶ Undo if you prefer the original.");
+    } catch (e) {
+      setStatus("err", "AI clean error: " + e.message);
+      setLineState(div, "ok", readyMsg(div));
+    }
   };
   div.querySelector(".split").onclick = async () => {
     if (!div._raw) { setLineState(div, "err", "generate or record this line first"); return; }
