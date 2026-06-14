@@ -196,6 +196,9 @@
 
     <label>Acting style (tell the AI how to perform)</label>
     <textarea id="stylePrompt" rows="2">Perform this like a funny comedy sketch. Be very expressive, exaggerated and energetic.</textarea>
+    <label style="margin-top:10px;">Accent / Dialect (keeps the voice consistent every time)</label>
+    <input id="dialect" type="text" value="Palestinian Levantine Arabic (لهجة فلسطينية محكية)">
+    <div class="hint">Gemini sometimes drifts to another accent. This locks it. Leave blank for English or no preference.</div>
   </div>
 
   <!-- ============ SCRIPT ============ -->
@@ -412,6 +415,8 @@ applyEngine(true);
 /* ---------- API key persistence ---------- */
 $("apiKey").value = lsGet("gvs_key") || "";
 $("apiKey").addEventListener("change", () => lsSet("gvs_key", $("apiKey").value.trim()));
+if (lsGet("gvs_dialect") !== null) $("dialect").value = lsGet("gvs_dialect");
+$("dialect").addEventListener("change", () => lsSet("gvs_dialect", $("dialect").value));
 
 const KEY_URL = "https://aistudio.google.com/apikey";
 $("openKey").onclick = () => {
@@ -1312,6 +1317,13 @@ const ACTING_RULES =
   "Words between [brackets] or (parentheses) are acting directions describing the emotion and HOW to say the line — " +
   "perform them with your voice but NEVER read those bracketed words aloud.\n";
 
+function dialectPrefix() {
+  const d = ($("dialect").value || "").trim();
+  if (!d) return "";
+  return "Speak ONLY in " + d + ". Use this exact accent and dialect for every line and every time you read it. " +
+    "Do NOT switch to Egyptian, Gulf, or Modern Standard Arabic — keep the same accent consistently.\n";
+}
+
 async function geminiTTS(prompt, speechConfig) {
   const key = $("apiKey").value.trim();
   if (!key) throw new Error("Paste your free API key first (step 1).");
@@ -1324,7 +1336,7 @@ async function geminiTTS(prompt, speechConfig) {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { responseModalities: ["AUDIO"], speechConfig }
+          generationConfig: { responseModalities: ["AUDIO"], speechConfig, temperature: 0.35, seed: 7 }
         })
       }
     );
@@ -1353,14 +1365,14 @@ async function geminiTTS(prompt, speechConfig) {
 
 async function ttsRequest(text, voiceName, stylePrompt) {
   const prompt =
-    (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
+    dialectPrefix() + (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
     "Say this line: " + text;
   return geminiTTS(prompt, { voiceConfig: { prebuiltVoiceConfig: { voiceName } } });
 }
 
 async function ttsConversationRequest(script, n1, v1, n2, v2, stylePrompt) {
   const prompt =
-    (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
+    dialectPrefix() + (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
     "Read this conversation aloud:\n" + script;
   return geminiTTS(prompt, {
     multiSpeakerVoiceConfig: {
