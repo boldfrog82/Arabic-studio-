@@ -448,7 +448,7 @@ function addLine(speaker, text = "") {
       <button class="ghostbtn small dl" disabled>⬇ MP3</button>
     </div>
     <div class="wavewrap" style="display:none;">
-      <div class="wavehint">Drag on the wave to select a part · tap to set a split point</div>
+      <div class="wavehint">Drag to select · then drag either green handle to move each side · tap to set a split point</div>
       <canvas class="wave" height="60"></canvas>
       <div class="actions" style="margin-top:6px;">
         <button class="ghostbtn small playsel">▶ Selection</button>
@@ -676,10 +676,14 @@ function drawWave(div) {
   }
   ctx.stroke();
   if (sel) {
-    ctx.strokeStyle = "#00d4a6";
+    ctx.strokeStyle = "#00d4a6"; ctx.fillStyle = "#00d4a6"; ctx.lineWidth = 2;
     for (const f of [sel.a, sel.b]) {
-      ctx.beginPath(); ctx.moveTo(f * W, 0); ctx.lineTo(f * W, H); ctx.stroke();
+      const x = f * W;
+      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, H); ctx.stroke();
+      ctx.fillRect(x - 3, 0, 6, 12);       // top grab handle
+      ctx.fillRect(x - 3, H - 12, 6, 12);  // bottom grab handle
     }
+    ctx.lineWidth = 1;
   }
 }
 
@@ -888,21 +892,37 @@ function copyLineSettings(from, to) {
 }
 function wireWaveEditor(div) {
   const cv = div.querySelector(".wave");
-  let dragStart = null;
+  let mode = null, anchor = 0;
   cv.addEventListener("pointerdown", e => {
     if (!div._raw) return;
     cv.setPointerCapture(e.pointerId);
-    dragStart = selFrac(cv, e.clientX);
-    div._sel = { a: dragStart, b: dragStart };
+    const f = selFrac(cv, e.clientX);
+    const tol = 16 / (cv.getBoundingClientRect().width || 300);
+    const s = div._sel;
+    if (s && s.b - s.a > 0.002 && Math.abs(f - s.a) <= tol) {
+      mode = "a";                 // grab and move the LEFT edge
+    } else if (s && s.b - s.a > 0.002 && Math.abs(f - s.b) <= tol) {
+      mode = "b";                 // grab and move the RIGHT edge
+    } else {
+      mode = "new"; anchor = f;   // start a fresh selection
+      div._sel = { a: f, b: f };
+    }
     drawWave(div); e.preventDefault();
   });
   cv.addEventListener("pointermove", e => {
-    if (dragStart == null) return;
+    if (!mode) return;
     const f = selFrac(cv, e.clientX);
-    div._sel = { a: Math.min(dragStart, f), b: Math.max(dragStart, f) };
+    const s = div._sel;
+    if (mode === "new") {
+      div._sel = { a: Math.min(anchor, f), b: Math.max(anchor, f) };
+    } else if (mode === "a") {
+      if (f <= s.b) s.a = f; else { s.a = s.b; s.b = f; mode = "b"; } // crossed over → swap edges
+    } else if (mode === "b") {
+      if (f >= s.a) s.b = f; else { s.b = s.a; s.a = f; mode = "a"; }
+    }
     drawWave(div);
   });
-  const end = () => { dragStart = null; };
+  const end = () => { mode = null; };
   cv.addEventListener("pointerup", end);
   cv.addEventListener("pointercancel", end);
 
