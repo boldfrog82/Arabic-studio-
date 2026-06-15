@@ -1454,8 +1454,10 @@ const ACTING_RULES =
 function dialectPrefix() {
   const d = ($("dialect").value || "").trim();
   if (!d) return "";
-  return "Speak ONLY in " + d + ". Use this exact accent and dialect for every line and every time you read it. " +
-    "Do NOT switch to Egyptian, Gulf, or Modern Standard Arabic — keep the same accent consistently.\n";
+  return "Speak ONLY in " + d + ", with a strong, authentic native accent of that region. " +
+    "Pronounce every word and use the intonation exactly like a local native speaker of this dialect. " +
+    "Keep this same accent for every line and every time. " +
+    "Do NOT use Gulf/Khaleeji, Egyptian, or Modern Standard Arabic — only this dialect.\n";
 }
 
 async function geminiTTS(prompt, speechConfig) {
@@ -1525,6 +1527,7 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function freeTTS(text, voice, onStatus) {
   const prompt =
+    dialectPrefix() +
     "Repeat exactly the following line and nothing else. " +
     "Words in [brackets] or (parentheses) describe the emotion — act them with your voice but never say them aloud:\n" + text;
   const url = `https://text.pollinations.ai/${encodeURIComponent(prompt)}?model=openai-audio&voice=${encodeURIComponent(voice)}&referrer=arabicstudio`;
@@ -1569,7 +1572,7 @@ async function puterTTS(text, voice, stylePrompt) {
   const clean = text.replace(/\[([^\]]+)\]|\(([^)]+)\)/g, (m, a, b) => { tags.push(a || b); return " "; })
                     .replace(/ +/g, " ").trim() || text;
   const instructions =
-    ((stylePrompt || "").trim() + "\n" +
+    (dialectPrefix() + (stylePrompt || "").trim() + "\n" +
      (tags.length ? "Act this line with these emotions: " + tags.join(", ") + ".\n" : "") +
      "Be very expressive and theatrical.").trim();
   let audio;
