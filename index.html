@@ -155,7 +155,10 @@
     <div id="elKeyWrap" style="display:none;margin-bottom:12px;">
       <label for="elKeyTop">ElevenLabs key (paste once — saved only in this browser)</label>
       <input type="password" id="elKeyTop" placeholder="sk_...">
-      <div class="hint">Get it free: open <b>elevenlabs.io</b> → Sign up → your profile (bottom-left) → <b>API Keys</b> → Create → copy → paste here. Same key works for ElevenLabs voices, 🎧 AI clean voice, and AI sound effects.</div>
+      <div class="actions" style="margin-top:6px;">
+        <button class="ghostbtn small" id="reloadElVoices">🔄 Reload my voices</button>
+      </div>
+      <div class="hint">Get it free: open <b>elevenlabs.io</b> → Sign up → your profile (bottom-left) → <b>API Keys</b> → Create → copy → paste here. Same key works for ElevenLabs voices, 🎧 AI clean voice, and AI sound effects.<br>Added new voices on elevenlabs.io? Press <b>🔄 Reload my voices</b> to pull them in.</div>
     </div>
 
     <div class="speaker-config">
@@ -2444,6 +2447,11 @@ $("elKey").value = lsGet("gvs_elkey") || "";
 $("elKeyTop").value = lsGet("gvs_elkey") || "";
 $("elKey").addEventListener("change", () => { setElKey($("elKey").value); _elVoicesCache = null; if ($("engine").value === "eleven") populateElevenVoices(); });
 $("elKeyTop").addEventListener("change", () => { setElKey($("elKeyTop").value); _elVoicesCache = null; if ($("engine").value === "eleven") populateElevenVoices(); });
+$("reloadElVoices").addEventListener("click", () => {
+  _elVoicesCache = null;
+  setStatus("", '<span class="spin"></span>Reloading your ElevenLabs voices...');
+  populateElevenVoices();
+});
 $("sfxAiGen").onclick = async () => {
   const key = $("elKey").value.trim();
   const prompt = $("sfxPrompt").value.trim();
