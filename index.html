@@ -431,17 +431,60 @@ fillSelect($("s2fx"), EFFECTS, "none");
 
 function applyEngine(initial) {
   const e = $("engine").value;
-  let list, d1, d2;
-  if (e === "eleven") { list = EL_VOICES; d1 = "pNInz6obpgDQGcFmaJgB"; d2 = "TxGEqnHWrfWFTfGW9XjX"; }
-  else if (e === "free" || e === "puter") { list = FREE_VOICES; d1 = "echo"; d2 = "onyx"; }
-  else { list = VOICES; d1 = "Fenrir"; d2 = "Puck"; }
-  fillSelect($("s1voice"), list, d1);
-  fillSelect($("s2voice"), list, d2);
   $("elKeyWrap").style.display = e === "eleven" ? "block" : "none";
+  if (e === "eleven") {
+    fillSelect($("s1voice"), [["", "loading your voices…"]], "");
+    fillSelect($("s2voice"), [["", "loading your voices…"]], "");
+    populateElevenVoices();
+  } else {
+    let list, d1, d2;
+    if (e === "free" || e === "puter") { list = FREE_VOICES; d1 = "echo"; d2 = "onyx"; }
+    else { list = VOICES; d1 = "Fenrir"; d2 = "Puck"; }
+    fillSelect($("s1voice"), list, d1);
+    fillSelect($("s2voice"), list, d2);
+  }
   if (!initial)
     for (const div of linesEl.children)
       if (div._raw) setLineState(div, "stale", "engine changed — regenerate");
   lsSet("gvs_engine", e);
+}
+
+/* free ElevenLabs accounts can only use voices that are in THEIR account — fetch those */
+let _elVoicesCache = null;
+async function loadElevenVoices(key) {
+  if (_elVoicesCache) return _elVoicesCache;
+  const res = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": key } });
+  if (!res.ok) throw new Error(res.status === 401 ? "key not accepted — re-copy it from elevenlabs.io → API Keys" : "could not load voices (" + res.status + ")");
+  const data = await res.json();
+  const voices = (data.voices || []).map(v => {
+    const l = v.labels || {};
+    const desc = [l.gender, l.accent, l.age, l.descriptive || l.description].filter(Boolean).join(", ");
+    return [v.voice_id, v.name + (desc ? " — " + desc : "")];
+  });
+  _elVoicesCache = voices;
+  return voices;
+}
+async function populateElevenVoices() {
+  const key = ($("elKeyTop").value || "").trim() || lsGet("gvs_elkey") || "";
+  if (!key) {
+    fillSelect($("s1voice"), [["", "← paste your ElevenLabs key first"]], "");
+    fillSelect($("s2voice"), [["", "← paste your ElevenLabs key first"]], "");
+    return;
+  }
+  try {
+    const voices = await loadElevenVoices(key);
+    if (!voices.length) {
+      setStatus("err", "Your ElevenLabs account has no usable voices. Go to elevenlabs.io → Voices → add a few to 'My Voices', then come back.");
+      return;
+    }
+    fillSelect($("s1voice"), voices, voices[0][0]);
+    fillSelect($("s2voice"), voices, (voices[1] || voices[0])[0]);
+    setStatus("ok", `✓ Loaded ${voices.length} ElevenLabs voice(s) from your account.`);
+  } catch (e) {
+    setStatus("err", "ElevenLabs voices: " + e.message);
+    fillSelect($("s1voice"), [["", "(couldn't load — check key)"]], "");
+    fillSelect($("s2voice"), [["", "(couldn't load — check key)"]], "");
+  }
 }
 const storedEngine = lsGet("gvs_engine");
 $("engine").value = ["free", "gemini", "puter", "eleven"].includes(storedEngine) ? storedEngine : "gemini";
@@ -2399,8 +2442,8 @@ $("sfxDl").onclick = () => downloadBuffer(sfxBuffer, "sfx_" + $("sfxType").value
 /* ---------- AI sound effects from a text description (ElevenLabs) ---------- */
 $("elKey").value = lsGet("gvs_elkey") || "";
 $("elKeyTop").value = lsGet("gvs_elkey") || "";
-$("elKey").addEventListener("change", () => setElKey($("elKey").value));
-$("elKeyTop").addEventListener("change", () => setElKey($("elKeyTop").value));
+$("elKey").addEventListener("change", () => { setElKey($("elKey").value); _elVoicesCache = null; if ($("engine").value === "eleven") populateElevenVoices(); });
+$("elKeyTop").addEventListener("change", () => { setElKey($("elKeyTop").value); _elVoicesCache = null; if ($("engine").value === "eleven") populateElevenVoices(); });
 $("sfxAiGen").onclick = async () => {
   const key = $("elKey").value.trim();
   const prompt = $("sfxPrompt").value.trim();
