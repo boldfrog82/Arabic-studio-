@@ -256,10 +256,18 @@ To the bank, please [calm].
     <button id="showTimeline" class="ghostbtn" style="margin-top:8px;">🎬 Show conversation timeline</button>
     <div class="hint">Each line also gets its own ▶ play and ⬇ MP3 button, so you can use single lines in your game too. Gap between lines:
       <select id="gapMs" style="width:auto;padding:4px 8px;">
+        <option value="0">none</option>
+        <option value="150">0.15s</option>
         <option value="250">0.25s</option>
         <option value="450" selected>0.45s</option>
         <option value="800">0.8s</option>
       </select>
+    </div>
+    <div class="hint">
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer;">
+        <input type="checkbox" id="tightenGaps" checked style="width:auto;">
+        Even out gaps (trim each line's own silence so every pause is the same)
+      </label>
     </div>
     <div class="status" id="status"></div>
   </div>
@@ -2193,11 +2201,16 @@ $("genOne").onclick = async () => {
 
 function buildConversation() {
   const divs = [...linesEl.children];
-  if (divs.length && divs.every(d => d._buffer))
-    return concatBuffers(divs.map(d => d._buffer), parseInt($("gapMs").value));
+  if (divs.length && divs.every(d => d._buffer)) {
+    // trim each clip's own silence so the gap between turns is even (set only by the gap control)
+    const tight = $("tightenGaps").checked;
+    const clips = divs.map(d => tight ? autoTrim(d._buffer, 0.012) : d._buffer);
+    return concatBuffers(clips, parseInt($("gapMs").value));
+  }
   return null;
 }
 $("gapMs").addEventListener("change", invalidateConversation);
+$("tightenGaps").addEventListener("change", invalidateConversation);
 $("playAll").onclick = () => {
   if (!conversationBuffer) conversationBuffer = buildConversation();
   if (!conversationBuffer) { setStatus("err", "First press 🎙️ Generate all voices (step 1 needs your free API key)."); return; }
