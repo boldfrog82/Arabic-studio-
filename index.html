@@ -212,9 +212,16 @@
       <button class="small" id="togglePaste">📋 Paste whole script</button>
     </div>
     <div id="pasteBox" style="display:none;margin-top:10px;">
-      <label>Paste your full script — one line each, like: <b dir="rtl">البطل: [مستعجل] اركب بسرعة</b></label>
-      <textarea id="scriptPaste" rows="8" dir="auto" placeholder="البطل: [مستعجل] اركب بسرعة، بس لا تسأل عن صوت السيارة.
-الشيطان: [بارد] خذني إلى البوابة السوداء."></textarea>
+      <label>Paste your whole conversation — I split it into the two characters automatically. Works with either layout:<br>
+      <b>Name: text</b> on one line, OR the <b>name on its own line</b> with the dialogue underneath.</label>
+      <textarea id="scriptPaste" rows="8" dir="auto" placeholder="جيم
+[chatty, friendly] شكلك بتشتغل في البنك.
+
+الراكب الإنجليزي
+To the bank, please [calm].
+
+جيم
+آه، داون؟ يعني تحت؟"></textarea>
       <div class="actions">
         <button class="small green" id="importScript">✓ Import script</button>
       </div>
@@ -584,34 +591,64 @@ $("togglePaste").onclick = () => {
   box.style.display = box.style.display === "none" ? "block" : "none";
   if (box.style.display === "block") $("scriptPaste").focus();
 };
-$("importScript").onclick = () => {
-  const names = [];
-  const parsed = [];
-  for (let line of $("scriptPaste").value.split("\n")) {
-    line = line.trim();
-    if (!line) continue;
-    const m = /^(.{1,30}?)\s*[::]\s*(.+)$/.exec(line);
-    if (m) {
-      let idx = names.indexOf(m[1]);
-      if (idx === -1 && names.length < 2) { names.push(m[1]); idx = names.length - 1; }
-      if (idx === -1) idx = 1; // any third name goes to character 2
-      parsed.push([idx + 1, m[2].trim()]);
-    } else if (parsed.length) {
-      parsed[parsed.length - 1][1] += " " + line; // continuation of previous line
+// understands both "Name: text" and "name on its own line, dialogue below" layouts
+function parseScript(raw) {
+  const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(l => l.length);
+  if (!lines.length) return { entries: [], names: [] };
+  const colonRe = /^(.{1,30}?)\s*[::]\s*(.+)$/;
+  const colonCount = lines.filter(l => colonRe.test(l)).length;
+  const entries = [];
+  if (colonCount >= 2 && colonCount >= lines.length * 0.4) {
+    // Layout A: "Name: text"
+    for (const line of lines) {
+      const m = colonRe.exec(line);
+      if (m) entries.push([m[1].trim(), m[2].trim()]);
+      else if (entries.length) entries[entries.length - 1][1] += " " + line;
     }
+  } else {
+    // Layout B: a short repeated name line is a speaker header; dialogue follows
+    const freq = {};
+    for (const l of lines) freq[l] = (freq[l] || 0) + 1;
+    const nameLike = l => l.length <= 30 && !/[\[\](){}]/.test(l) && !/[.!?…]/.test(l) && l.split(/\s+/).length <= 5;
+    const headerNames = new Set(lines.filter(l => freq[l] >= 2 && nameLike(l)));
+    let current = null;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i];
+      const isHeader = headerNames.has(l) || (nameLike(l) && i + 1 < lines.length && !nameLike(lines[i + 1]));
+      if (isHeader) { current = [l, ""]; entries.push(current); }
+      else if (current) current[1] += (current[1] ? " " : "") + l;
+      else { current = ["Speaker 1", l]; entries.push(current); }
+    }
+    for (let i = entries.length - 1; i >= 0; i--) if (!entries[i][1].trim()) entries.splice(i, 1);
   }
-  if (!parsed.length) {
-    setStatus("err", "Could not read the script — write each line like:  Name: text");
+  const names = [];
+  for (const [n] of entries) if (!names.includes(n)) names.push(n);
+  return { entries, names };
+}
+
+$("importScript").onclick = () => {
+  const { entries, names } = parseScript($("scriptPaste").value);
+  if (!entries.length) {
+    setStatus("err", "Could not read the script. Put each speaker's name on its own line with the dialogue under it, or use 'Name: text'.");
     return;
   }
-  if (names[0]) $("s1name").value = names[0];
-  if (names[1]) $("s2name").value = names[1];
+  // decide which name is Jim (character 1): match a name containing jim/جيم, else first one
+  const jimIdx = names.findIndex(n => /jim|جيم/i.test(n));
+  const first = jimIdx >= 0 ? names[jimIdx] : names[0];
+  const second = names.find(n => n !== first);
+  if (first) $("s1name").value = first;
+  if (second) $("s2name").value = second;
   linesEl.innerHTML = "";
-  for (const [sp, txt] of parsed) addLine(String(sp), txt);
+  let c1 = 0, c2 = 0;
+  for (const [name, txt] of entries) {
+    const sp = name === first ? "1" : "2";
+    if (sp === "1") c1++; else c2++;
+    addLine(sp, txt);
+  }
   refreshNames();
   invalidateConversation();
   $("pasteBox").style.display = "none";
-  setStatus("ok", `✓ Imported ${parsed.length} lines for ${names.join(" + ")}. Now press 🎙️ Generate all voices.`);
+  setStatus("ok", `✓ Imported ${entries.length} lines — ${first || "Char 1"}: ${c1}, ${second || "Char 2"}: ${c2}. Now press 🎙️ Generate all voices.`);
 };
 // changing the AI base voice needs a new generation (API call)
 for (const id of ["s1voice","s2voice"]) {
