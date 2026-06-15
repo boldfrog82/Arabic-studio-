@@ -1487,7 +1487,14 @@ async function geminiTTS(prompt, speechConfig) {
       throw new Error(msg);
     }
     const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
-    if (!part) throw new Error("No audio returned — try shorter text.");
+    if (!part) {
+      // no audio in this model's reply — record why, then try the next model
+      const cand = data.candidates?.[0];
+      const reason = cand?.finishReason || data.promptFeedback?.blockReason ||
+        (cand?.content?.parts?.find(p => p.text)?.text) || "empty reply";
+      lastErr = `${model}: ${reason}`;
+      continue;
+    }
     return pcmBase64ToBuffer(part.inlineData.data, part.inlineData.mimeType || "");
   }
   if (!quotaHit && lastErr) throw new Error("AI server problem (" + lastErr + ") — wait a minute and try again.");
