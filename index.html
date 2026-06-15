@@ -148,6 +148,7 @@
     <label>Voice engine</label>
     <select id="engine" style="margin-bottom:12px;">
       <option value="gemini">🎭 Gemini AI — best acting &amp; emotions (needs free key, small quota)</option>
+      <option value="eleven">🎙️ ElevenLabs — same voice &amp; accent every time (free key, no drift)</option>
       <option value="puter">⭐ OpenAI voices via Puter — free &amp; reliable (sign in once, no card)</option>
       <option value="free">🆓 OpenAI voices via Pollinations — no sign-in, but often busy</option>
     </select>
@@ -336,6 +337,24 @@ const FREE_VOICES = [
   ["sage",    "Sage — calm woman"],
 ];
 
+/* ElevenLabs preset voices (fixed IDs → same voice & accent every time) */
+const EL_VOICES = [
+  ["pNInz6obpgDQGcFmaJgB", "Adam — deep man"],
+  ["TxGEqnHWrfWFTfGW9XjX", "Josh — young man"],
+  ["VR6AewLTigWG4xSOukaG", "Arnold — strong man"],
+  ["ErXwobaYiN019PkySvjV", "Antoni — warm man"],
+  ["onwK4e9ZLuTAKqWW03F9", "Daniel — deep British man"],
+  ["JBFqnCBsd6RMkjVDRZzb", "George — British man"],
+  ["N2lVS1w4EtoT3dr4eOWO", "Callum — intense man"],
+  ["yoZ06aMxZJJ28mfd3POQ", "Sam — neutral man"],
+  ["21m00Tcm4TlvDq8ikWAM", "Rachel — woman"],
+  ["EXAVITQu4vr4xnSDxMaL", "Sarah — soft woman"],
+  ["XB0fDUnXU5powFXDhCwa", "Charlotte — young woman"],
+  ["XrExE9yKIg1WjnnlVkGX", "Matilda — warm woman"],
+  ["pFZP5JQG7iQjIQuC4Bku", "Lily — British woman"],
+  ["AZnzlk1XvdvUeBnXmlld", "Domi — strong woman"],
+];
+
 /* Voice effects applied locally (free, offline) */
 const EFFECTS = [
   ["none",      "🎤 Normal (no effect)"],
@@ -406,16 +425,20 @@ fillSelect($("s1fx"), EFFECTS, "none");
 fillSelect($("s2fx"), EFFECTS, "none");
 
 function applyEngine(initial) {
-  const openaiVoices = $("engine").value === "free" || $("engine").value === "puter";
-  fillSelect($("s1voice"), openaiVoices ? FREE_VOICES : VOICES, openaiVoices ? "echo" : "Fenrir");
-  fillSelect($("s2voice"), openaiVoices ? FREE_VOICES : VOICES, openaiVoices ? "onyx" : "Puck");
+  const e = $("engine").value;
+  let list, d1, d2;
+  if (e === "eleven") { list = EL_VOICES; d1 = "pNInz6obpgDQGcFmaJgB"; d2 = "TxGEqnHWrfWFTfGW9XjX"; }
+  else if (e === "free" || e === "puter") { list = FREE_VOICES; d1 = "echo"; d2 = "onyx"; }
+  else { list = VOICES; d1 = "Fenrir"; d2 = "Puck"; }
+  fillSelect($("s1voice"), list, d1);
+  fillSelect($("s2voice"), list, d2);
   if (!initial)
     for (const div of linesEl.children)
       if (div._raw) setLineState(div, "stale", "engine changed — regenerate");
-  lsSet("gvs_engine", $("engine").value);
+  lsSet("gvs_engine", e);
 }
 const storedEngine = lsGet("gvs_engine");
-$("engine").value = ["free", "gemini", "puter"].includes(storedEngine) ? storedEngine : "gemini";
+$("engine").value = ["free", "gemini", "puter", "eleven"].includes(storedEngine) ? storedEngine : "gemini";
 $("engine").addEventListener("change", () => applyEngine(false));
 applyEngine(true);
 
@@ -1487,6 +1510,31 @@ async function puterTTS(text, voice, stylePrompt) {
   return await audioCtx.decodeAudioData(await res.arrayBuffer());
 }
 
+/* ElevenLabs TTS — fixed voice ID, so the voice & accent never drift */
+async function elevenTTS(text, voiceId) {
+  const key = await getElKey();
+  if (!key) throw new Error("ElevenLabs needs a free key — paste it when the box asks (elevenlabs.io → Profile → API Keys).");
+  // v2 reads bracket tags aloud, so strip the [emotion] directions out
+  const clean = text.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim() || text;
+  const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId, {
+    method: "POST",
+    headers: { "xi-api-key": key, "Content-Type": "application/json" },
+    body: JSON.stringify({
+      text: clean,
+      model_id: "eleven_multilingual_v2",
+      voice_settings: { stability: 0.55, similarity_boost: 0.8 }
+    })
+  });
+  if (!res.ok) {
+    let msg = res.statusText;
+    try { const j = await res.json(); msg = (j.detail && (j.detail.message || j.detail.status)) || msg; } catch {}
+    if (res.status === 401) msg = "key not accepted — copy it again from elevenlabs.io → API Keys";
+    if (res.status === 429) msg = "ElevenLabs monthly credits finished — they renew next month";
+    throw new Error("ElevenLabs: " + msg);
+  }
+  return await audioCtx.decodeAudioData(await res.arrayBuffer());
+}
+
 /* Gemini returns 16-bit PCM mono (usually 24000 Hz) */
 function pcmBase64ToBuffer(b64, mime) {
   const rateMatch = /rate=(\d+)/.exec(mime);
@@ -1897,6 +1945,8 @@ async function generateLine(div) {
     div._raw = await freeTTS(text, voice, msg => setLineState(div, "busy", msg));
   } else if (engine === "puter") {
     div._raw = await puterTTS(text, voice, $("stylePrompt").value);
+  } else if (engine === "eleven") {
+    div._raw = await elevenTTS(text, voice);
   } else {
     div._raw = await ttsRequest(text, voice, $("stylePrompt").value);
   }
@@ -1937,7 +1987,7 @@ $("genAll").onclick = async () => {
    available in this mode (the audio comes back as one piece). */
 $("genOne").onclick = async () => {
   if ($("engine").value !== "gemini") {
-    setStatus("ok", "This engine has no small quota — just press 🎙️ Generate all voices.");
+    setStatus("ok", "The ONE-request trick is only for Gemini. On this engine just press 🎙️ Generate all voices.");
     return;
   }
   const divs = [...linesEl.children];
