@@ -171,6 +171,7 @@
         <div>
           <label>AI base voice</label>
           <select id="s1voice"></select>
+          <input type="text" id="s1voiceId" class="elOnly" placeholder="…or paste an ElevenLabs Voice ID" style="display:none;margin-top:4px;">
         </div>
         <div>
           <label>Voice effect 🎭</label>
@@ -192,6 +193,7 @@
         <div>
           <label>AI base voice</label>
           <select id="s2voice"></select>
+          <input type="text" id="s2voiceId" class="elOnly" placeholder="…or paste an ElevenLabs Voice ID" style="display:none;margin-top:4px;">
         </div>
         <div>
           <label>Voice effect 🎭</label>
@@ -437,6 +439,7 @@ fillSelect($("s2fx"), EFFECTS, "none");
 function applyEngine(initial) {
   const e = $("engine").value;
   $("elKeyWrap").style.display = e === "eleven" ? "block" : "none";
+  for (const el of document.querySelectorAll(".elOnly")) el.style.display = e === "eleven" ? "block" : "none";
   if (e === "eleven") {
     fillSelect($("s1voice"), [["", "loading your voices…"]], "");
     fillSelect($("s2voice"), [["", "loading your voices…"]], "");
@@ -763,12 +766,17 @@ $("importScript").onclick = () => {
   setStatus("ok", `✓ Imported ${entries.length} lines — ${first || "Char 1"}: ${c1}, ${second || "Char 2"}: ${c2}. Now press 🎙️ Generate all voices.`);
 };
 // changing the AI base voice needs a new generation (API call)
-for (const id of ["s1voice","s2voice"]) {
+for (const id of ["s1voice","s2voice","s1voiceId","s2voiceId"]) {
   $(id).addEventListener("change", () => {
     const sp = id[1]; // "1" or "2"
     for (const div of linesEl.children)
       if (div.dataset.speaker === sp && div._buffer) setLineState(div, "stale", "voice changed — regenerate");
   });
+}
+// remember pasted ElevenLabs voice IDs
+for (const id of ["s1voiceId","s2voiceId"]) {
+  $(id).value = lsGet("gvs_" + id) || "";
+  $(id).addEventListener("change", () => lsSet("gvs_" + id, $(id).value.trim()));
 }
 
 /* ---------- effects re-apply instantly on the device, no API call ---------- */
@@ -2051,7 +2059,8 @@ async function generateLine(div) {
   } else if (engine === "puter") {
     div._raw = await puterTTS(text, voice, $("stylePrompt").value);
   } else if (engine === "eleven") {
-    div._raw = await elevenTTS(text, voice);
+    const customId = ($(sp === "1" ? "s1voiceId" : "s2voiceId").value || "").trim();
+    div._raw = await elevenTTS(text, customId || voice);
   } else {
     div._raw = await ttsRequest(text, voice, $("stylePrompt").value);
   }
