@@ -459,6 +459,10 @@ function applyEngine(initial) {
 
 /* free ElevenLabs accounts can only use voices that are in THEIR account — fetch those */
 let _elVoicesCache = null;
+// hand-added ElevenLabs voices (by ID) that always appear at the top of the list
+const EL_EXTRA = [
+  ["fBD19tfE58bkETeiwUoC", "⭐ Little Dude II — Cartoon Character"],
+];
 function elMsg(html, color) { const e = $("elStatus"); if (e) { e.innerHTML = html; e.style.color = color || "var(--muted)"; } }
 async function loadElevenVoices(key) {
   if (_elVoicesCache) return _elVoicesCache;
@@ -490,7 +494,7 @@ async function populateElevenVoices() {
   }
   elMsg("⏳ loading your voices…");
   try {
-    const voices = await loadElevenVoices(key);
+    const voices = [...EL_EXTRA, ...await loadElevenVoices(key)];
     if (!voices.length) {
       fillSelect($("s1voice"), [["", "(no usable voices)"]], "");
       fillSelect($("s2voice"), [["", "(no usable voices)"]], "");
@@ -501,8 +505,8 @@ async function populateElevenVoices() {
     fillSelect($("s2voice"), voices, (voices[1] || voices[0])[0]);
     elMsg("✓ Loaded " + voices.length + " voice(s).", "var(--accent2)");
   } catch (e) {
-    fillSelect($("s1voice"), [["", "(couldn't load — see message)"]], "");
-    fillSelect($("s2voice"), [["", "(couldn't load — see message)"]], "");
+    fillSelect($("s1voice"), EL_EXTRA, EL_EXTRA[0][0]);
+    fillSelect($("s2voice"), EL_EXTRA, EL_EXTRA[0][0]);
     const m = e.message || "";
     let hint = m;
     if (/401|403/.test(m)) hint = m + " — your key is missing 'Voices: Read' permission. On elevenlabs.io → API Keys, edit the key and enable Voices access (or make a new key with all permissions).";
