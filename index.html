@@ -158,6 +158,7 @@
       <div class="actions" style="margin-top:6px;">
         <button class="ghostbtn small" id="reloadElVoices">🔄 Reload my voices</button>
       </div>
+      <div id="elStatus" class="hint" style="min-height:1em;"></div>
       <div class="hint">Get it free: open <b>elevenlabs.io</b> → Sign up → your profile (bottom-left) → <b>API Keys</b> → Create → copy → paste here. Same key works for ElevenLabs voices, 🎧 AI clean voice, and AI sound effects.<br>Added new voices on elevenlabs.io? Press <b>🔄 Reload my voices</b> to pull them in.</div>
     </div>
 
@@ -454,39 +455,54 @@ function applyEngine(initial) {
 
 /* free ElevenLabs accounts can only use voices that are in THEIR account — fetch those */
 let _elVoicesCache = null;
+function elMsg(html, color) { const e = $("elStatus"); if (e) { e.innerHTML = html; e.style.color = color || "var(--muted)"; } }
 async function loadElevenVoices(key) {
   if (_elVoicesCache) return _elVoicesCache;
   const res = await fetch("https://api.elevenlabs.io/v1/voices", { headers: { "xi-api-key": key } });
-  if (!res.ok) throw new Error(res.status === 401 ? "key not accepted — re-copy it from elevenlabs.io → API Keys" : "could not load voices (" + res.status + ")");
+  if (!res.ok) {
+    let detail = "";
+    try { const j = await res.json(); detail = (j.detail && (j.detail.message || j.detail.status)) || JSON.stringify(j); } catch {}
+    throw new Error("HTTP " + res.status + (detail ? " — " + detail : ""));
+  }
   const data = await res.json();
-  const voices = (data.voices || []).map(v => {
+  const all = data.voices || [];
+  // free accounts can only use the built-in "premade" voices via API; library/pro ones are blocked
+  const usable = all.filter(v => !v.category || v.category === "premade");
+  const list = (usable.length ? usable : all).map(v => {
     const l = v.labels || {};
     const desc = [l.gender, l.accent, l.age, l.descriptive || l.description].filter(Boolean).join(", ");
-    return [v.voice_id, v.name + (desc ? " — " + desc : "")];
+    return [v.voice_id, v.name + (desc ? " — " + desc : "") + (v.category && v.category !== "premade" ? " (may need paid)" : "")];
   });
-  _elVoicesCache = voices;
-  return voices;
+  _elVoicesCache = list;
+  return list;
 }
 async function populateElevenVoices() {
   const key = ($("elKeyTop").value || "").trim() || lsGet("gvs_elkey") || "";
   if (!key) {
     fillSelect($("s1voice"), [["", "← paste your ElevenLabs key first"]], "");
     fillSelect($("s2voice"), [["", "← paste your ElevenLabs key first"]], "");
+    elMsg("Paste your key above, then press 🔄 Reload my voices.");
     return;
   }
+  elMsg("⏳ loading your voices…");
   try {
     const voices = await loadElevenVoices(key);
     if (!voices.length) {
-      setStatus("err", "Your ElevenLabs account has no usable voices. Go to elevenlabs.io → Voices → add a few to 'My Voices', then come back.");
+      fillSelect($("s1voice"), [["", "(no usable voices)"]], "");
+      fillSelect($("s2voice"), [["", "(no usable voices)"]], "");
+      elMsg("Your account returned no API-usable voices. ElevenLabs free API only allows the built-in default voices — library voices need a paid plan.", "var(--danger)");
       return;
     }
     fillSelect($("s1voice"), voices, voices[0][0]);
     fillSelect($("s2voice"), voices, (voices[1] || voices[0])[0]);
-    setStatus("ok", `✓ Loaded ${voices.length} ElevenLabs voice(s) from your account.`);
+    elMsg("✓ Loaded " + voices.length + " voice(s).", "var(--accent2)");
   } catch (e) {
-    setStatus("err", "ElevenLabs voices: " + e.message);
-    fillSelect($("s1voice"), [["", "(couldn't load — check key)"]], "");
-    fillSelect($("s2voice"), [["", "(couldn't load — check key)"]], "");
+    fillSelect($("s1voice"), [["", "(couldn't load — see message)"]], "");
+    fillSelect($("s2voice"), [["", "(couldn't load — see message)"]], "");
+    const m = e.message || "";
+    let hint = m;
+    if (/401|403/.test(m)) hint = m + " — your key is missing 'Voices: Read' permission. On elevenlabs.io → API Keys, edit the key and enable Voices access (or make a new key with all permissions).";
+    elMsg("✗ " + hint, "var(--danger)");
   }
 }
 const storedEngine = lsGet("gvs_engine");
