@@ -152,6 +152,11 @@
       <option value="puter">⭐ OpenAI voices via Puter — free &amp; reliable (sign in once, no card)</option>
       <option value="free">🆓 OpenAI voices via Pollinations — no sign-in, but often busy</option>
     </select>
+    <div id="elKeyWrap" style="display:none;margin-bottom:12px;">
+      <label for="elKeyTop">ElevenLabs key (paste once — saved only in this browser)</label>
+      <input type="password" id="elKeyTop" placeholder="sk_...">
+      <div class="hint">Get it free: open <b>elevenlabs.io</b> → Sign up → your profile (bottom-left) → <b>API Keys</b> → Create → copy → paste here. Same key works for ElevenLabs voices, 🎧 AI clean voice, and AI sound effects.</div>
+    </div>
 
     <div class="speaker-config">
       <div class="row">
@@ -432,6 +437,7 @@ function applyEngine(initial) {
   else { list = VOICES; d1 = "Fenrir"; d2 = "Puck"; }
   fillSelect($("s1voice"), list, d1);
   fillSelect($("s2voice"), list, d2);
+  $("elKeyWrap").style.display = e === "eleven" ? "block" : "none";
   if (!initial)
     for (const div of linesEl.children)
       if (div._raw) setLineState(div, "stale", "engine changed — regenerate");
@@ -1012,12 +1018,18 @@ async function afterEdit(div) {
   div._sel = null;
   await reapplyLine(div).catch(e => setLineState(div, "err", e.message));
 }
-// get (or ask once for) the free ElevenLabs key used by AI clean voice + AI sound effects
+// one ElevenLabs key shared by the ElevenLabs engine, AI clean voice, and AI sound effects
+function setElKey(v) {
+  v = (v || "").trim();
+  lsSet("gvs_elkey", v);
+  if ($("elKey")) $("elKey").value = v;
+  if ($("elKeyTop")) $("elKeyTop").value = v;
+}
 async function getElKey() {
-  let key = ($("elKey").value || "").trim() || lsGet("gvs_elkey") || "";
+  let key = ($("elKeyTop") && $("elKeyTop").value.trim()) || ($("elKey") && $("elKey").value.trim()) || lsGet("gvs_elkey") || "";
   if (!key) {
-    key = (prompt("Paste your free ElevenLabs key (elevenlabs.io → sign up → Profile → API Keys).\nIt removes background voices, chatter, and clinking knives/spoons from your recording:") || "").trim();
-    if (key) { $("elKey").value = key; lsSet("gvs_elkey", key); }
+    key = (prompt("Paste your free ElevenLabs key (elevenlabs.io → sign up → Profile → API Keys):") || "").trim();
+    if (key) setElKey(key);
   }
   return key;
 }
@@ -1513,18 +1525,18 @@ async function puterTTS(text, voice, stylePrompt) {
 /* ElevenLabs TTS — fixed voice ID, so the voice & accent never drift */
 async function elevenTTS(text, voiceId) {
   const key = await getElKey();
-  if (!key) throw new Error("ElevenLabs needs a free key — paste it when the box asks (elevenlabs.io → Profile → API Keys).");
-  // v2 reads bracket tags aloud, so strip the [emotion] directions out
-  const clean = text.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim() || text;
-  const res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId, {
+  if (!key) throw new Error("ElevenLabs needs a free key — paste it in the box under the engine menu (elevenlabs.io → Profile → API Keys).");
+  const call = (model, body) => fetch("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId, {
     method: "POST",
     headers: { "xi-api-key": key, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      text: clean,
-      model_id: "eleven_multilingual_v2",
-      voice_settings: { stability: 0.55, similarity_boost: 0.8 }
-    })
+    body: JSON.stringify({ text: body, model_id: model, voice_settings: { stability: 0.5, similarity_boost: 0.8 } })
   });
+  // try v3 first — it acts [emotion] tags. If the account/model rejects it, fall back to v2 (strip tags).
+  let res = await call("eleven_v3", text);
+  if (!res.ok && [400, 403, 404, 422].includes(res.status)) {
+    const clean = text.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim() || text;
+    res = await call("eleven_multilingual_v2", clean);
+  }
   if (!res.ok) {
     let msg = res.statusText;
     try { const j = await res.json(); msg = (j.detail && (j.detail.message || j.detail.status)) || msg; } catch {}
@@ -2386,7 +2398,9 @@ $("sfxDl").onclick = () => downloadBuffer(sfxBuffer, "sfx_" + $("sfxType").value
 
 /* ---------- AI sound effects from a text description (ElevenLabs) ---------- */
 $("elKey").value = lsGet("gvs_elkey") || "";
-$("elKey").addEventListener("change", () => lsSet("gvs_elkey", $("elKey").value.trim()));
+$("elKeyTop").value = lsGet("gvs_elkey") || "";
+$("elKey").addEventListener("change", () => setElKey($("elKey").value));
+$("elKeyTop").addEventListener("change", () => setElKey($("elKeyTop").value));
 $("sfxAiGen").onclick = async () => {
   const key = $("elKey").value.trim();
   const prompt = $("sfxPrompt").value.trim();
