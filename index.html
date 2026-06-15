@@ -302,6 +302,7 @@ To the bank, please [calm].
       • <b>Effects</b> (robot, ghost, devil...) are applied on your device after the AI speaks, so they are 100% free. The Pitch / Echo / Grit sliders stack on top of any preset.<br>
       • <b>🎤 Record:</b> every line also has a Record button — record your own voice with the microphone and all the same effects and sliders work on it. No AI, no quota, no internet needed.<br>
       • <b>📁 Import:</b> load an MP3/WAV/M4A/OGG from anywhere (a clip from another app, or an Adobe Podcast–cleaned file) into a line, then apply effects, edit the waveform, and re-download it.<br>
+      • <b>✂️ Split by silence:</b> import a whole conversation as one file, press Split by silence, and it auto-cuts it into separate clips at the pauses (alternating Jim/Passenger). Tap a clip's coloured name to switch which character it is, then change the passenger clips' pitch/effects.<br>
       • <b>🌊 Waveform editing:</b> after generating or recording, drag on the wave to select a part, then ✂️ <b>Trim</b> keeps only the selection, 🗑️ <b>Cut</b> removes it and joins the rest (splice out a mistake), ✃ <b>Split</b> breaks the line into two at your tap point, and 🔇 <b>Auto-trim silence</b> removes quiet gaps at the start and end. ▶ Selection previews the picked part, and ↶ Undo reverses any edit.<br>
       • <b>🩹 Clean-up (recordings):</b> <b>Fix clicks/pops</b> finds sudden sharp spikes (mic bumps, mouth clicks) and smooths them out automatically. For background hiss: select a flat, quiet part of the wave with no talking, press 📎 <b>Learn noise</b>, then 🧹 <b>Remove noise</b> to filter that hiss out of the whole line.<br>
       • <b>🚪 Noise gate (noisy places like a café):</b> turns the sound to silence whenever you're not talking, so background chatter only exists while you speak — and your voice covers it then. Hold the phone close to your mouth, then set the Gate level slider (start at -35 dB; if chatter still leaks in the pauses lower it toward -25 dB; if it cuts the start of your words raise it toward -45 dB) and press 🚪 Noise gate.<br>
@@ -580,6 +581,7 @@ function addLine(speaker, text = "") {
         <button class="ghostbtn small trim">✂️ Trim to selection</button>
         <button class="ghostbtn small cut">🗑️ Cut selection</button>
         <button class="ghostbtn small split">✃ Split here</button>
+        <button class="ghostbtn small silsplit">✂️ Split by silence</button>
         <button class="ghostbtn small hush">🔇 Auto-trim silence</button>
         <button class="ghostbtn small declick">🩹 Fix clicks/pops</button>
         <button class="ghostbtn small learn">📎 Learn noise</button>
@@ -616,6 +618,14 @@ function addLine(speaker, text = "") {
   ta.value = text;
   requestAnimationFrame(() => autoGrow(ta));
   div.querySelector(".del").onclick = () => { div.remove(); invalidateConversation(); };
+  const who = div.querySelector(".who");
+  who.style.cursor = "pointer";
+  who.title = "click to switch this line to the other character";
+  who.onclick = () => {
+    div.dataset.speaker = div.dataset.speaker === "1" ? "2" : "1";
+    refreshNames();
+    invalidateConversation();
+  };
   div.querySelector(".up").onclick = () => { if (div.previousElementSibling) linesEl.insertBefore(div, div.previousElementSibling); invalidateConversation(); };
   div.querySelector(".down").onclick = () => { if (div.nextElementSibling) linesEl.insertBefore(div.nextElementSibling, div); invalidateConversation(); };
   div.querySelector(".gen").onclick = () => generateLine(div).catch(e => setLineState(div, "err", e.message));
@@ -929,6 +939,28 @@ function autoTrim(buf, threshold = 0.015) {
   const out = audioCtx.createBuffer(1, e - s + 1, buf.sampleRate);
   out.getChannelData(0).set(d.subarray(s, e + 1));
   return out;
+}
+
+// find voiced segments separated by pauses → returns [aFrac, bFrac] pairs
+function silenceSegments(buf, threshold = 0.015, gapSec = 0.35) {
+  const d = buf.getChannelData(0), n = buf.length, sr = buf.sampleRate;
+  const minGap = Math.floor(sr * gapSec);
+  const minSeg = Math.floor(sr * 0.18);
+  const pad = Math.floor(sr * 0.05);
+  const segs = [];
+  let start = null, sil = 0;
+  for (let j = 0; j < n; j++) {
+    if (Math.abs(d[j]) > threshold) {
+      if (start === null) start = j;
+      sil = 0;
+    } else if (start !== null && ++sil >= minGap) {
+      const end = j - sil;
+      if (end - start >= minSeg) segs.push([Math.max(0, start - pad), Math.min(n, end + pad)]);
+      start = null; sil = 0;
+    }
+  }
+  if (start !== null && n - start >= minSeg) segs.push([Math.max(0, start - pad), n]);
+  return segs.map(([a, b]) => [a / n, b / n]);
 }
 
 /* ---- clean-up DSP: declick + learn-noise / noise reduction ---- */
@@ -1311,6 +1343,34 @@ function wireWaveEditor(div) {
     setLineState(div, "ok", readyMsg(div));
     refreshNames();
     invalidateConversation();
+  };
+  div.querySelector(".silsplit").onclick = async () => {
+    if (!div._raw) { setLineState(div, "err", "import or record audio first"); return; }
+    stopLive();
+    setStatus("", '<span class="spin"></span>Finding the pauses and splitting...');
+    await sleep(20);
+    const segs = silenceSegments(div._raw);
+    if (segs.length < 2) {
+      setStatus("err", "Couldn't find clear pauses between the lines — the gaps may be too short. Try ✃ Split here by hand.");
+      setLineState(div, "ok", readyMsg(div));
+      return;
+    }
+    const source = div._raw;
+    const clips = segs.map(([a, b]) => edgeFade(sliceBuf(source, a, b)));
+    let speaker = div.dataset.speaker, anchor = div;
+    div._raw = clips[0]; div._sel = null; div._presetSrc = null; div._rec = true;
+    await reapplyLine(div);
+    for (let k = 1; k < clips.length; k++) {
+      speaker = speaker === "1" ? "2" : "1"; // assume turns alternate
+      const nd = addLine(speaker, "");
+      anchor.after(nd); anchor = nd;
+      copyLineSettings(div, nd);
+      nd._raw = clips[k]; nd._rec = true; nd._presetSrc = null;
+      await reapplyLine(nd);
+    }
+    refreshNames();
+    invalidateConversation();
+    setStatus("ok", `✓ Split into ${clips.length} clips (alternating). Tap a clip's coloured name to fix who's who, then change the passenger clips.`);
   };
 }
 
