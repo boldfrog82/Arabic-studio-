@@ -403,8 +403,12 @@ const EFFECTS = [
 ];
 
 /* TTS models to try, newest first (falls back automatically) */
+let lastGeminiModel = ""; // which model actually answered (shown to the user)
 const TTS_MODELS = [
-  "gemini-3.1-flash-tts-preview",
+  "gemini-3.8-flash-tts",          // newest (Nov 2026) — best quality
+  "gemini-3.8-flash-lite-tts",     // newest, faster/lighter
+  "gemini-3.1-flash-tts-preview",  // older fallbacks below
+  "gemini-3.1-flash-tts",
   "gemini-2.5-flash-preview-tts",
   "gemini-2.5-pro-preview-tts",
 ];
@@ -1585,6 +1589,8 @@ async function geminiTTS(prompt, speechConfig) {
       if (res.status === 429) { quotaHit = true; lastErr = msg; continue; }
       // internal server error / overloaded — also try the next model
       if (res.status >= 500) { lastErr = msg; continue; }
+      // model not open to this key / doesn't accept a setting — fall back to the next model
+      if (res.status === 400 || res.status === 403) { lastErr = `${model}: ${msg}`; continue; }
       throw new Error(msg);
     }
     const part = data.candidates?.[0]?.content?.parts?.find(p => p.inlineData);
@@ -1596,6 +1602,7 @@ async function geminiTTS(prompt, speechConfig) {
       lastErr = `${model}: ${reason}`;
       continue;
     }
+    lastGeminiModel = model;
     return pcmBase64ToBuffer(part.inlineData.data, part.inlineData.mimeType || "");
   }
   if (!quotaHit && lastErr) throw new Error("AI server problem (" + lastErr + ") — wait a minute and try again.");
@@ -2138,6 +2145,8 @@ async function generateLine(div) {
   }
   div._rec = false;
   await reapplyLine(div);
+  if (engine === "gemini" && lastGeminiModel)
+    setLineState(div, "ok", "✓ ready · " + lastGeminiModel.replace(/^gemini-/, ""));
 }
 
 $("genAll").onclick = async () => {
@@ -2160,7 +2169,7 @@ $("genAll").onclick = async () => {
     }
     setStatus("", `<span class="spin"></span>Mixing the conversation...`);
     conversationBuffer = concatBuffers(divs.map(d => d._buffer), parseInt($("gapMs").value));
-    setStatus("ok", "✓ Done! Press ▶️ to listen or ⬇️ to download the MP3.");
+    setStatus("ok", "✓ Done! Press ▶️ to listen or ⬇️ to download the MP3." + ($("engine").value === "gemini" && lastGeminiModel ? " (Gemini model used: " + lastGeminiModel + ")" : ""));
   } catch (e) {
     setStatus("err", "Error: " + e.message);
   } finally {
@@ -2190,7 +2199,7 @@ $("genOne").onclick = async () => {
     conversationBuffer = await ttsConversationRequest(
       script, n1, $("s1voice").value, n2, $("s2voice").value, $("stylePrompt").value
     );
-    setStatus("ok", "✓ Done with 1 request! Press ▶️ to listen or ⬇️ to download. (Voice effects work only in normal mode.)");
+    setStatus("ok", "✓ Done with 1 request! Press ▶️ to listen or ⬇️ to download. (Voice effects work only in normal mode.) Gemini model used: " + lastGeminiModel);
   } catch (e) {
     setStatus("err", "Error: " + e.message);
   } finally {
