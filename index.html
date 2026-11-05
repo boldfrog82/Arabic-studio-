@@ -752,6 +752,11 @@ function parseScript(raw) {
     for (const l of lines) freq[l] = (freq[l] || 0) + 1;
     const nameLike = l => l.length <= 30 && !/[\[\](){}]/.test(l) && !/[.!?…]/.test(l) && l.split(/\s+/).length <= 5;
     const headerNames = new Set(lines.filter(l => freq[l] >= 2 && nameLike(l)));
+    const isHdr = (l, i) => headerNames.has(l) || (nameLike(l) && i + 1 < lines.length && !nameLike(lines[i + 1]));
+    if (!lines.some(isHdr)) {
+      // no speaker names at all: one box per line (all on character 1) instead of one giant box
+      return { entries: lines.map(l => ["", l]), names: [""], unnamed: true };
+    }
     let current = null;
     for (let i = 0; i < lines.length; i++) {
       const l = lines[i];
@@ -768,7 +773,7 @@ function parseScript(raw) {
 }
 
 $("importScript").onclick = () => {
-  const { entries, names } = parseScript($("scriptPaste").value);
+  const { entries, names, unnamed } = parseScript($("scriptPaste").value);
   if (!entries.length) {
     setStatus("err", "Could not read the script. Put each speaker's name on its own line with the dialogue under it, or use 'Name: text'.");
     return;
@@ -789,7 +794,8 @@ $("importScript").onclick = () => {
   refreshNames();
   invalidateConversation();
   $("pasteBox").style.display = "none";
-  setStatus("ok", `✓ Imported ${entries.length} lines — ${first || "Char 1"}: ${c1}, ${second || "Char 2"}: ${c2}. Now press 🎙️ Generate all voices.`);
+  if (unnamed) setStatus("err", `⚠ Imported ${entries.length} lines, but there were no speaker names, so they're ALL on ${$("s1name").value || "Character 1"}. Tap the coloured name on each passenger line to switch it — or add names (جيم: / الراكب:) and import again.`);
+  else setStatus("ok", `✓ Imported ${entries.length} lines — ${first || "Char 1"}: ${c1}, ${second || "Char 2"}: ${c2}. Now press 🎙️ Generate all voices.`);
 };
 // changing the AI base voice needs a new generation (API call)
 for (const id of ["s1voice","s2voice","s1voiceId","s2voiceId"]) {
