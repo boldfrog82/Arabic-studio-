@@ -1578,11 +1578,13 @@ function dialectPrefix() {
     "Do NOT use Gulf/Khaleeji, Egyptian, or Modern Standard Arabic — only this dialect.\n";
 }
 
-async function geminiTTS(prompt, speechConfig) {
+const badModels = new Set(); // models caught reading extra words this session
+async function geminiTTS(prompt, speechConfig, maxSec) {
   const key = $("apiKey").value.trim();
   if (!key) throw new Error("Paste your free API key first (step 1).");
-  let lastErr = "", quotaHit = false;
+  let lastErr = "", quotaHit = false, tooLong = false;
   for (const model of TTS_MODELS) {
+    if (badModels.has(model)) continue;
     const res = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(key)}`,
       {
@@ -1615,9 +1617,18 @@ async function geminiTTS(prompt, speechConfig) {
       lastErr = `${model}: ${reason}`;
       continue;
     }
+    const buf = pcmBase64ToBuffer(part.inlineData.data, part.inlineData.mimeType || "");
+    if (maxSec && buf.duration > maxSec) {
+      // far too long for this text: the model read the notes aloud — reject it and stop using it
+      badModels.add(model);
+      tooLong = true;
+      lastErr = `${model} read extra words (${Math.round(buf.duration)}s audio for a ~${Math.round(maxSec)}s line)`;
+      continue;
+    }
     lastGeminiModel = model;
-    return pcmBase64ToBuffer(part.inlineData.data, part.inlineData.mimeType || "");
+    return buf;
   }
+  if (tooLong && !quotaHit) throw new Error("Gemini read extra words instead of just the line (" + lastErr + "). Tell Claude.");
   if (!quotaHit && lastErr) throw new Error("AI server problem (" + lastErr + ") — wait a minute and try again.");
   if (quotaHit) throw new Error(
     "Free quota used on ALL models. Wait 1-2 minutes and try again (per-minute limit), " +
@@ -1627,25 +1638,37 @@ async function geminiTTS(prompt, speechConfig) {
   throw new Error("No TTS model available for this key: " + lastErr);
 }
 
+// Director's notes kept apart from the TRANSCRIPT, which is the only part to be spoken
+function ttsPrompt(transcript, stylePrompt) {
+  const notes = [];
+  if (stylePrompt && stylePrompt.trim()) notes.push("Style: " + stylePrompt.trim());
+  const d = ($("dialect").value || "").trim();
+  if (d) notes.push("Accent: " + d + ", a strong authentic native accent of that region. Not Gulf/Khaleeji, Egyptian or Modern Standard Arabic.");
+  notes.push("Words in [brackets] or (parentheses) are performance directions: act them, never say them.");
+  notes.push("Speak ONLY the transcript below, exactly as written. Never read these notes aloud.");
+  return "### DIRECTOR'S NOTES\n" + notes.join("\n") + "\n\n#### TRANSCRIPT\n" + transcript;
+}
+// longest believable audio for a text — anything longer means the model read extra words
+function maxSecondsFor(text, base) {
+  const spoken = text.replace(/\[[^\]]*\]|\([^)]*\)/g, "").trim().length;
+  return base + spoken * 0.3;
+}
+
 async function ttsRequest(text, voiceName, stylePrompt) {
-  const prompt =
-    dialectPrefix() + (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
-    "Say this line: " + text;
-  return geminiTTS(prompt, { voiceConfig: { prebuiltVoiceConfig: { voiceName } } });
+  return geminiTTS(ttsPrompt(text, stylePrompt),
+    { voiceConfig: { prebuiltVoiceConfig: { voiceName } } },
+    maxSecondsFor(text, 6));
 }
 
 async function ttsConversationRequest(script, n1, v1, n2, v2, stylePrompt) {
-  const prompt =
-    dialectPrefix() + (stylePrompt ? stylePrompt.trim() + "\n" : "") + ACTING_RULES +
-    "Read this conversation aloud:\n" + script;
-  return geminiTTS(prompt, {
+  return geminiTTS(ttsPrompt(script, stylePrompt), {
     multiSpeakerVoiceConfig: {
       speakerVoiceConfigs: [
         { speaker: n1, voiceConfig: { prebuiltVoiceConfig: { voiceName: v1 } } },
         { speaker: n2, voiceConfig: { prebuiltVoiceConfig: { voiceName: v2 } } }
       ]
     }
-  });
+  }, maxSecondsFor(script, 15));
 }
 
 /* ============================================================
