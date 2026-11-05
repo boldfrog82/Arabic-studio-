@@ -148,7 +148,7 @@
     <label>Voice engine</label>
     <select id="engine" style="margin-bottom:12px;">
       <option value="gemini">🎭 Gemini AI — best acting &amp; emotions (needs free key, small quota)</option>
-      <option value="eleven">🎙️ ElevenLabs — same voice &amp; accent every time (free key, no drift)</option>
+      <option value="eleven">🎙️ ElevenLabs v4 — same voice &amp; accent every time (free key, no drift)</option>
       <option value="puter">⭐ OpenAI voices via Puter — free &amp; reliable (sign in once, no card)</option>
       <option value="free">🆓 OpenAI voices via Pollinations — no sign-in, but often busy</option>
     </select>
@@ -1739,28 +1739,39 @@ async function puterTTS(text, voice, stylePrompt) {
 }
 
 /* ElevenLabs TTS — fixed voice ID, so the voice & accent never drift */
+// newest first; [emotion] tags kept for models that act them, stripped for v2 (it reads them aloud)
+const EL_MODELS = [
+  ["eleven_v4", true],
+  ["eleven_v3", true],
+  ["eleven_multilingual_v2", false],
+];
+let lastElevenModel = "";
 async function elevenTTS(text, voiceId) {
   const key = await getElKey();
   if (!key) throw new Error("ElevenLabs needs a free key — paste it in the box under the engine menu (elevenlabs.io → Profile → API Keys).");
-  const call = (model, body) => fetch("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId, {
-    method: "POST",
-    headers: { "xi-api-key": key, "Content-Type": "application/json" },
-    body: JSON.stringify({ text: body, model_id: model, voice_settings: { stability: 0.5, similarity_boost: 0.8 } })
-  });
-  // try v3 first — it acts [emotion] tags. If the account/model rejects it, fall back to v2 (strip tags).
-  let res = await call("eleven_v3", text);
-  if (!res.ok && [400, 403, 404, 422].includes(res.status)) {
-    const clean = text.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim() || text;
-    res = await call("eleven_multilingual_v2", clean);
+  const clean = text.replace(/\[[^\]]*\]/g, "").replace(/\([^)]*\)/g, "").replace(/\s+/g, " ").trim() || text;
+  let res;
+  for (const [model, keepTags] of EL_MODELS) {
+    res = await fetch("https://api.elevenlabs.io/v1/text-to-speech/" + voiceId, {
+      method: "POST",
+      headers: { "xi-api-key": key, "Content-Type": "application/json" },
+      body: JSON.stringify({ text: keepTags ? text : clean, model_id: model, voice_settings: { stability: 0.5, similarity_boost: 0.8 } })
+    });
+    if (res.ok) {
+      lastElevenModel = model;
+      return await audioCtx.decodeAudioData(await res.arrayBuffer());
+    }
+    // model not available to this account → try the next one; any other error → stop
+    if (![400, 402, 403, 404, 422].includes(res.status)) break;
+    let m = "";
+    try { const j = await res.clone().json(); m = (j.detail && (j.detail.message || j.detail.status)) || ""; } catch {}
+    if (/library voice|voice_not_found|voice not found/i.test(m)) break; // a voice problem, not a model problem
   }
-  if (!res.ok) {
-    let msg = res.statusText;
-    try { const j = await res.json(); msg = (j.detail && (j.detail.message || j.detail.status)) || msg; } catch {}
-    if (res.status === 401) msg = "key not accepted — copy it again from elevenlabs.io → API Keys";
-    if (res.status === 429) msg = "ElevenLabs monthly credits finished — they renew next month";
-    throw new Error("ElevenLabs: " + msg);
-  }
-  return await audioCtx.decodeAudioData(await res.arrayBuffer());
+  let msg = res.statusText;
+  try { const j = await res.json(); msg = (j.detail && (j.detail.message || j.detail.status)) || msg; } catch {}
+  if (res.status === 401) msg = "key not accepted — copy it again from elevenlabs.io → API Keys";
+  if (res.status === 429) msg = "ElevenLabs monthly credits finished — they renew next month";
+  throw new Error("ElevenLabs: " + msg);
 }
 
 /* Gemini returns 16-bit PCM mono (usually 24000 Hz) */
@@ -2183,6 +2194,8 @@ async function generateLine(div) {
   await reapplyLine(div);
   if (engine === "gemini" && lastGeminiModel)
     setLineState(div, "ok", "✓ ready · " + lastGeminiModel.replace(/^gemini-/, ""));
+  if (engine === "eleven" && lastElevenModel)
+    setLineState(div, "ok", "✓ ready · ElevenLabs " + lastElevenModel.replace(/^eleven_/, ""));
 }
 
 $("genAll").onclick = async () => {
