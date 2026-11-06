@@ -876,11 +876,25 @@ async function reflowMatched(from) {
   }
   invalidateConversation();
 }
+// how well a cutting fits the text: every piece should last about as long as its line's text suggests
+function fitCost(parts, T, texts) {
+  const spoken = texts.map(t => t.replace(/\[[^\]]*\]|\([^)]*\)/g, "").trim());
+  const w = spoken.map(t => Math.max(4, t.length)), pp = spoken.map(textPause);
+  const W = w.reduce((x, y) => x + y, 0);
+  const rate = Math.max(0.02, (T - pp.reduce((x, y) => x + y, 0) - 0.4 * texts.length) / W);
+  return parts.reduce((c, [a, b], k) => { const e = w[k] * rate + pp[k] + 0.4; return c + (((b - a) * T - e) / (CUT.a * e + CUT.b)) ** 2; }, 0);
+}
 async function matchAudioToScript(buf, name, divs) {
   const texts = divs.map(d => d.querySelector("textarea").value);
   const sameSpeaker = divs.every(d => d.dataset.speaker === divs[0].dataset.speaker); // script had no names
-  const parts = cutIntoLines(buf, texts, sameSpeaker ? null : divs.map(d => d.dataset.speaker));
+  let parts = cutIntoLines(buf, texts, null);
   if (!parts) return false;
+  if (!sameSpeaker) {
+    // try using the script's speaker changes as anchors; keep that only if the line lengths still fit
+    // (with one voice reading everything, "voice changes" are just emotions and make the cut worse)
+    const withVoice = cutIntoLines(buf, texts, divs.map(d => d.dataset.speaker));
+    if (withVoice && fitCost(withVoice, buf.duration, texts) <= 1.25 * fitCost(parts, buf.duration, texts)) parts = withVoice;
+  }
   let note = "who's who comes from the script.";
   if (sameSpeaker) {
     const g = guessSpeakers(parts.map(([a, b]) => sliceBuf(buf, a, b)), divs[0].dataset.speaker);
@@ -1090,7 +1104,14 @@ function autoTrim(buf, threshold = 0.015) {
 // Cut a whole-conversation recording into exactly texts.length pieces.
 // Candidate cuts = quiet gaps; the chosen cuts make each piece about as long as its line's text
 // should take (so a dramatic pause INSIDE a line isn't mistaken for the end of the line).
-const CUT = { a: 0.25, b: 0.9, c: 2, cap: 0.6, g: 0.75, v: 3, D: 1.5, W: 0.6 }; // balance between length, punctuation, pause size, voice change
+// seconds of pause a line's own punctuation adds (measured on ElevenLabs v4 Arabic)
+function textPause(t) {
+  let body = t.replace(/[\s….!?؟،,:]+$/, "");
+  const ell = (body.match(/…|\.\.\./g) || []).length;
+  body = body.replace(/…|\.\.\./g, " ");
+  return 0.45 * ell + 0.3 * (body.match(/[.!?؟]/g) || []).length + 0.25 * (body.match(/:/g) || []).length + 0.12 * (body.match(/[،,]/g) || []).length;
+}
+const CUT = { a: 0.35, b: 0.6, c: 2, cap: 0.6, g: 0, v: 3, D: 1.5, W: 0.6 }; // balance between length, punctuation, pause size, voice change
 // per-frame pitch + brightness over a whole recording (8 kHz, 80 ms steps)
 function voiceTrack(buf) {
   const sr = 8000, N = 320, hop = 640;
@@ -1151,7 +1172,10 @@ function cutIntoLines(buf, texts, speakers) {
   const spoken = texts.map(t => t.replace(/\[[^\]]*\]|\([^)]*\)/g, "").trim());
   const w = spoken.map(t => Math.max(4, t.length));
   const W = w.reduce((a, b) => a + b, 0);
-  const E = w.map(x => (x / W) * T); // expected seconds per line
+  // expected seconds per line = talking time (by letters) + the pauses its punctuation causes + ~0.4 s line break
+  const pp = spoken.map(textPause);
+  const rate = Math.max(0.02, (T - pp.reduce((a, b) => a + b, 0) - 0.4 * n) / W);
+  const E = w.map((x, k) => x * rate + pp[k] + 0.4);
   // pauses the text itself predicts INSIDE each line (… . ! ? ، before the last word)
   const P = spoken.map(t => {
     const body = t.replace(/[\s….!?؟،,]+$/, "");
