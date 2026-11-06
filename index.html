@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – D</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – E</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -232,6 +232,10 @@
       <button class="small green" id="importClips">📂 Import line clips (one file per line)</button>
       <button class="small green" id="importConvo">📥 Import full conversation (MP3)</button>
       <button class="ghostbtn small" id="swapChars">⇄ Swap characters</button>
+      <button class="small" id="addClip1">＋📁 <span class="n1">Character 1</span>'s clip</button>
+      <button class="small green" id="addClip2">＋📁 <span class="n2">Character 2</span>'s clip</button>
+      <button class="ghostbtn small" id="clearLines">🧹 Clear all lines</button>
+      <input type="file" id="clipOne" accept="audio/*,.mp3,.wav,.m4a,.ogg" style="display:none">
       <button class="ghostbtn small" id="addLine1">＋ Line for Character 1</button>
       <button class="ghostbtn small" id="addLine2">＋ Line for Character 2</button>
       <button class="ghostbtn small" id="loadSample">🎬 Load funny taxi sample</button>
@@ -668,22 +672,33 @@ function addLine(speaker, text = "") {
   div.querySelector(".rec").onclick = () => toggleRecord(div, div.querySelector(".rec"));
   const impFile = div.querySelector(".impfile");
   div.querySelector(".imp").onclick = () => impFile.click();
-  impFile.onchange = async () => {
-    const f = impFile.files[0];
+  const importInto = async f => {
     if (!f) return;
     stopLive();
     setLineState(div, "busy", "⏳ importing audio...");
     try {
       const decoded = await audioCtx.decodeAudioData(await f.arrayBuffer());
       div._raw = toMono(decoded);
-      div._rec = true;
+      div._rec = true; div._presetSrc = null; div._seg = null; div._sel = null;
       await reapplyLine(div);
-      setStatus("ok", "✓ Imported " + f.name + " — now add effects, edit, or download.");
+      setStatus("ok", "✓ Line " + ([...linesEl.children].indexOf(div) + 1) + ": imported " + f.name);
     } catch (e) {
       setLineState(div, "err", "couldn't read that file — use MP3, WAV, M4A or OGG");
     }
-    impFile.value = "";
   };
+  impFile.onchange = async () => { await importInto(impFile.files[0]); impFile.value = ""; };
+  // drag a downloaded file (e.g. from Chrome's download list) straight onto this line
+  div.addEventListener("dragover", e => {
+    if (![...(e.dataTransfer?.types || [])].includes("Files")) return;
+    e.preventDefault(); div.style.outline = "2px dashed var(--accent2)";
+  });
+  div.addEventListener("dragleave", () => { div.style.outline = ""; });
+  div.addEventListener("drop", e => {
+    const f = e.dataTransfer?.files?.[0];
+    if (!f) return;
+    e.preventDefault(); div.style.outline = "";
+    importInto(f);
+  });
   div.querySelector(".play").onclick = () => playBuffer(div._buffer || div._raw);
   div.querySelector(".resetfx").onclick = async () => {
     stopLive();
@@ -737,12 +752,49 @@ function addLine(speaker, text = "") {
 function refreshNames() {
   const n1 = $("s1name").value || "Character 1";
   const n2 = $("s2name").value || "Character 2";
+  document.querySelectorAll(".n1").forEach(e => (e.textContent = n1));
+  document.querySelectorAll(".n2").forEach(e => (e.textContent = n2));
   for (const div of linesEl.children) {
     div.querySelector(".who").textContent = div.dataset.speaker === "1" ? "🟣 " + n1 : "🟢 " + n2;
   }
 }
 $("s1name").addEventListener("input", refreshNames);
 $("s2name").addEventListener("input", refreshNames);
+
+/* build a conversation clip by clip: one tap adds a line for that character with the chosen audio */
+let clipFor = null;
+$("addClip1").onclick = () => { clipFor = "1"; $("clipOne").click(); };
+$("addClip2").onclick = () => { clipFor = "2"; $("clipOne").click(); };
+$("clipOne").onchange = async () => {
+  const f = $("clipOne").files[0];
+  $("clipOne").value = "";
+  if (!f || !clipFor) return;
+  stopLive();
+  matchSrc = null;
+  const d = addLine(clipFor, "");
+  setLineState(d, "busy", "⏳ importing audio...");
+  try {
+    d._raw = toMono(await audioCtx.decodeAudioData(await f.arrayBuffer()));
+    d._rec = true;
+    await reapplyLine(d);
+    d.scrollIntoView({ behavior: "smooth", block: "center" });
+    setStatus("ok", `✓ Line ${linesEl.children.length} (${d.querySelector(".who").textContent.slice(2).trim()}): ${f.name}. Next: tap ＋📁 for whoever speaks next.`);
+  } catch (e) {
+    d.remove();
+    setStatus("err", "Couldn't read that file — use MP3, WAV, M4A or OGG.");
+  }
+};
+$("clearLines").onclick = () => {
+  if (linesEl.children.length && !confirm("Remove all " + linesEl.children.length + " lines?")) return;
+  stopLive();
+  linesEl.innerHTML = "";
+  matchSrc = null;
+  invalidateConversation();
+  setStatus("ok", "All lines removed. Start with ＋📁 for whoever speaks first.");
+};
+// a file dropped outside a line box must not make Chrome open it (that would leave the studio and lose your work)
+window.addEventListener("dragover", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
+window.addEventListener("drop", e => { if (!e.defaultPrevented && e.dataTransfer?.files?.length) e.preventDefault(); });
 $("addLine1").onclick = () => addLine("1");
 $("addLine2").onclick = () => addLine("2");
 let linesFromSample = false; // the demo taxi lines aren't a real script to match audio to
