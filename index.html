@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – E</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – F</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -795,13 +795,21 @@ $("clearLines").onclick = () => {
 // a file dropped outside a line box must not make Chrome open it (that would leave the studio and lose your work)
 window.addEventListener("dragover", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
 window.addEventListener("drop", e => { if (!e.defaultPrevented && e.dataTransfer?.files?.length) e.preventDefault(); });
-$("addLine1").onclick = () => addLine("1");
-$("addLine2").onclick = () => addLine("2");
-let linesFromSample = false; // the demo taxi lines aren't a real script to match audio to
+// add a line and put the cursor in it, ready to paste (Ctrl + V)
+function addLineReady(sp) {
+  const d = addLine(sp, "");
+  const ta = d.querySelector("textarea");
+  d.scrollIntoView({ behavior: "smooth", block: "center" });
+  ta.focus({ preventScroll: true });
+  matchSrc = null;
+  return d;
+}
+$("addLine1").onclick = () => addLineReady("1");
+$("addLine2").onclick = () => addLineReady("2");
+// the demo taxi lines are marked, because they aren't a real script to match audio to
 $("loadSample").onclick = () => {
-  linesFromSample = true;
   linesEl.innerHTML = "";
-  for (const [sp, txt] of SAMPLE) addLine(String(sp), txt);
+  for (const [sp, txt] of SAMPLE) addLine(String(sp), txt).dataset.sample = "1";
 };
 
 /* ---------- paste a whole script like "البطل: [مستعجل] اركب بسرعة" ---------- */
@@ -853,7 +861,6 @@ function parseScript(raw) {
 }
 
 $("importScript").onclick = () => {
-  linesFromSample = false;
   const { entries, names, unnamed } = parseScript($("scriptPaste").value);
   if (!entries.length) {
     setStatus("err", "Could not read the script. Put each speaker's name on its own line with the dialogue under it, or use 'Name: text'.");
@@ -998,7 +1005,7 @@ $("convoFile").onchange = async () => {
   try {
     const buf = toMono(await audioCtx.decodeAudioData(await f.arrayBuffer()));
     const divs = [...linesEl.children];
-    const scriptReady = !linesFromSample && divs.length >= 2 &&
+    const scriptReady = !divs.some(d => d.dataset.sample) && divs.length >= 2 &&
       divs.every(d => d.querySelector("textarea").value.trim() && !d._raw);
     if (scriptReady && await matchAudioToScript(buf, f.name, divs)) return;
     await loadConversationAudio(buf, f.name); // no script: cut at pauses and guess who's who by voice
