@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – B</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – C</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -877,14 +877,6 @@ async function reflowMatched(from) {
   }
   invalidateConversation();
 }
-// how well a cutting fits the text: every piece should last about as long as its line's text suggests
-function fitCost(parts, T, texts) {
-  const spoken = texts.map(t => t.replace(/\[[^\]]*\]|\([^)]*\)/g, "").trim());
-  const w = spoken.map(t => Math.max(4, t.length)), pp = spoken.map(textPause);
-  const W = w.reduce((x, y) => x + y, 0);
-  const rate = Math.max(0.02, (T - pp.reduce((x, y) => x + y, 0) - 0.4 * texts.length) / W);
-  return parts.reduce((c, [a, b], k) => { const e = w[k] * rate + pp[k] + 0.4; return c + (((b - a) * T - e) / (CUT.a * e + CUT.b)) ** 2; }, 0);
-}
 async function matchAudioToScript(buf, name, divs) {
   const texts = divs.map(d => d.querySelector("textarea").value);
   const sameSpeaker = divs.every(d => d.dataset.speaker === divs[0].dataset.speaker); // script had no names
@@ -894,7 +886,7 @@ async function matchAudioToScript(buf, name, divs) {
     // try using the script's speaker changes as anchors; keep that only if the line lengths still fit
     // (with one voice reading everything, "voice changes" are just emotions and make the cut worse)
     const withVoice = cutIntoLines(buf, texts, divs.map(d => d.dataset.speaker));
-    if (withVoice && fitCost(withVoice, buf.duration, texts) <= 1.25 * fitCost(parts, buf.duration, texts)) parts = withVoice;
+    if (withVoice && withVoice.fit <= 1.25 * parts.fit) parts = withVoice;
   }
   let note = "who's who comes from the script.";
   if (sameSpeaker) {
@@ -1112,7 +1104,7 @@ function textPause(t) {
   body = body.replace(/…|\.\.\./g, " ");
   return 0.45 * ell + 0.3 * (body.match(/[.!?؟]/g) || []).length + 0.25 * (body.match(/:/g) || []).length + 0.12 * (body.match(/[،,]/g) || []).length;
 }
-const CUT = { a: 0.35, b: 0.6, c: 2, cap: 0.6, g: 0, v: 3, D: 1.5, W: 0.6 }; // balance between length, punctuation, pause size, voice change
+const CUT = { a: 0.35, b: 0.4, c: 2, cap: 0.6, g: 0.25, v: 3, D: 1.5, W: 0.6 }; // balance between length, punctuation, pause size, voice change
 // per-frame pitch + brightness over a whole recording (8 kHz, 80 ms steps)
 function voiceTrack(buf) {
   const sr = 8000, N = 320, hop = 640;
@@ -1158,6 +1150,10 @@ function cutIntoLines(buf, texts, speakers) {
   }
   const sorted = Float32Array.from(env).sort();
   const thr = Math.max(0.006, (sorted[Math.floor(nf * 0.95)] || 0.1) * 0.06);
+  // talking time only: TTS speaks at a steady speed per letter, while its pauses vary a lot
+  const talkPref = new Int32Array(nf + 1);
+  for (let f = 0; f < nf; f++) talkPref[f + 1] = talkPref[f] + (env[f] >= thr ? 1 : 0);
+  const talk = (t0, t1) => (talkPref[Math.min(nf, Math.max(0, Math.round(t1 * sr / hop)))] - talkPref[Math.min(nf, Math.max(0, Math.round(t0 * sr / hop)))]) * hop / sr;
   const gaps = [];
   let st = -1;
   for (let f = 0; f <= nf; f++) {
@@ -1174,9 +1170,9 @@ function cutIntoLines(buf, texts, speakers) {
   const w = spoken.map(t => Math.max(4, t.length));
   const W = w.reduce((a, b) => a + b, 0);
   // expected seconds per line = talking time (by letters) + the pauses its punctuation causes + ~0.4 s line break
-  const pp = spoken.map(textPause);
-  const rate = Math.max(0.02, (T - pp.reduce((a, b) => a + b, 0) - 0.4 * n) / W);
-  const E = w.map((x, k) => x * rate + pp[k] + 0.4);
+  const letters = spoken.map(t => Math.max(1, (t.match(/\p{L}/gu) || []).length));
+  const L = letters.reduce((a, b) => a + b, 0);
+  const E = letters.map(x => (x / L) * talk(0, T)); // expected talking seconds per line
   // pauses the text itself predicts INSIDE each line (… . ! ? ، before the last word)
   const P = spoken.map(t => {
     const body = t.replace(/[\s….!?؟،,]+$/, "");
@@ -1185,7 +1181,7 @@ function cutIntoLines(buf, texts, speakers) {
   const longPref = new Int32Array(G + 1); // how many clear pauses (≥0.2 s) among gaps[0..x-1]
   for (let x = 0; x < G; x++) longPref[x + 1] = longPref[x] + (gaps[x].len >= 0.2 ? 1 : 0);
   const inside = (i, j) => longPref[j] - longPref[i]; // clear pauses among gaps[i..j-1]
-  const segCost = (dur, e, obs, exp) => ((dur - e) / (CUT.a * e + CUT.b)) ** 2 + CUT.g * (obs - exp) ** 2;
+  const segCost = (t0, t1, e, obs, exp) => ((talk(t0, t1) - e) / (CUT.a * e + CUT.b)) ** 2 + CUT.g * (obs - exp) ** 2;
   const bonus = g => CUT.c * Math.min(g.len, CUT.cap); // longer pauses are likelier line breaks
   // where the script says the speaker changes, the cut should land where the voice audibly changes
   let vch = null;
@@ -1196,7 +1192,7 @@ function cutIntoLines(buf, texts, speakers) {
   const vcost = (k, j) => (vch && speakers[k] !== speakers[k + 1] ? CUT.v * Math.max(0, 1 - vch[j] / CUT.D) : 0); // cut k sits between line k and k+1
   const INF = 1e18, back = [];
   let prev = new Float64Array(G);
-  for (let j = 0; j < G; j++) prev[j] = segCost(gaps[j].mid, E[0], inside(0, j), P[0]) - bonus(gaps[j]) + vcost(0, j);
+  for (let j = 0; j < G; j++) prev[j] = segCost(0, gaps[j].mid, E[0], inside(0, j), P[0]) - bonus(gaps[j]) + vcost(0, j);
   for (let k = 1; k < n - 1; k++) {
     const cur = new Float64Array(G).fill(INF), bk = new Int32Array(G).fill(-1);
     let bestI = -1, bestV = INF;
@@ -1204,7 +1200,7 @@ function cutIntoLines(buf, texts, speakers) {
       // best predecessor i < j (scan incrementally)
       for (let i = Math.max(k - 1, 0); i < j; i++) {
         if (prev[i] >= INF) continue;
-        const c = prev[i] + segCost(gaps[j].mid - gaps[i].mid, E[k], inside(i + 1, j), P[k]);
+        const c = prev[i] + segCost(gaps[i].mid, gaps[j].mid, E[k], inside(i + 1, j), P[k]);
         if (c < cur[j]) { cur[j] = c; bk[j] = i; }
       }
       if (cur[j] < INF) cur[j] += vcost(k, j) - bonus(gaps[j]);
@@ -1215,7 +1211,7 @@ function cutIntoLines(buf, texts, speakers) {
   let best = INF, bj = -1;
   for (let j = 0; j < G; j++) {
     if (prev[j] >= INF) continue;
-    const c = prev[j] + segCost(T - gaps[j].mid, E[n - 1], inside(j + 1, G), P[n - 1]);
+    const c = prev[j] + segCost(gaps[j].mid, T, E[n - 1], inside(j + 1, G), P[n - 1]);
     if (c < best) { best = c; bj = j; }
   }
   if (bj < 0) return null;
@@ -1223,7 +1219,9 @@ function cutIntoLines(buf, texts, speakers) {
   for (let k = back.length - 1; k >= 0; k--) cuts.push(back[k][cuts[cuts.length - 1]]);
   cuts.reverse();
   const pts = [0, ...cuts.map(j => gaps[j].mid / T), 1];
-  return pts.slice(0, -1).map((a, k) => [a, pts[k + 1]]);
+  const parts = pts.slice(0, -1).map((a, k) => [a, pts[k + 1]]);
+  parts.fit = parts.reduce((c, [a, b], k) => c + ((talk(a * T, b * T) - E[k]) / (CUT.a * E[k] + CUT.b)) ** 2, 0);
+  return parts;
 }
 
 // rough "voice fingerprint" of a clip: median pitch + brightness (zero-crossing rate)
