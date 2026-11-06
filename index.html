@@ -846,17 +846,25 @@ async function loadConversationAudio(buf, name) {
 }
 async function matchAudioToScript(buf, name, divs) {
   const texts = divs.map(d => d.querySelector("textarea").value);
-  const parts = cutIntoLines(buf, texts, divs.map(d => d.dataset.speaker));
+  const sameSpeaker = divs.every(d => d.dataset.speaker === divs[0].dataset.speaker); // script had no names
+  const parts = cutIntoLines(buf, texts, sameSpeaker ? null : divs.map(d => d.dataset.speaker));
   if (!parts) return false;
+  const clips = parts.map(([a, b]) => edgeFade(autoTrim(sliceBuf(buf, a, b), 0.012)));
+  let note = "who's who comes from the script.";
+  if (sameSpeaker) {
+    const g = guessSpeakers(clips, divs[0].dataset.speaker);
+    if (g.byVoice) { divs.forEach((d, k) => (d.dataset.speaker = g.speakers[k])); note = "your script had no names, so who's who was guessed by voice."; }
+    else note = "your script had no names and the voices sound alike, so all lines are on one character — tap a line's coloured name to switch it.";
+    refreshNames();
+  }
   for (let k = 0; k < divs.length; k++) {
     const d = divs[k];
-    d._raw = edgeFade(autoTrim(sliceBuf(buf, parts[k][0], parts[k][1]), 0.012));
+    d._raw = clips[k];
     d._rec = true; d._presetSrc = null; d._sel = null;
     await reapplyLine(d);
   }
   invalidateConversation();
-  setStatus("ok", `✓ ${name}: matched to your ${divs.length} script lines — who's who comes from the script. ` +
-    "Play a few lines to check. If the lines are shifted by one from some point, tell Claude.");
+  setStatus("ok", `✓ ${name}: matched to your ${divs.length} script lines — ${note} Play a few lines to check. If the lines are shifted by one from some point, tell Claude.`);
   return true;
 }
 $("importConvo").onclick = () => $("convoFile").click();
