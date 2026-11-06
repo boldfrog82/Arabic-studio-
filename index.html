@@ -846,7 +846,7 @@ async function loadConversationAudio(buf, name) {
 }
 async function matchAudioToScript(buf, name, divs) {
   const texts = divs.map(d => d.querySelector("textarea").value);
-  const parts = cutIntoLines(buf, texts);
+  const parts = cutIntoLines(buf, texts, divs.map(d => d.dataset.speaker));
   if (!parts) return false;
   for (let k = 0; k < divs.length; k++) {
     const d = divs[k];
@@ -1054,8 +1054,39 @@ function autoTrim(buf, threshold = 0.015) {
 // Cut a whole-conversation recording into exactly texts.length pieces.
 // Candidate cuts = quiet gaps; the chosen cuts make each piece about as long as its line's text
 // should take (so a dramatic pause INSIDE a line isn't mistaken for the end of the line).
-const CUT = { a: 0.35, b: 0.6, c: 2, cap: 0.6, g: 1.5 }; // balance between length, punctuation and pause size
-function cutIntoLines(buf, texts) {
+const CUT = { a: 0.25, b: 0.9, c: 2, cap: 0.6, g: 0.75, v: 3, D: 1.5, W: 0.6 }; // balance between length, punctuation, pause size, voice change
+// per-frame pitch + brightness over a whole recording (8 kHz, 80 ms steps)
+function voiceTrack(buf) {
+  const sr = 8000, N = 320, hop = 640;
+  const x = resampleBuffer(buf, sr).getChannelData(0);
+  const fr = [];
+  for (let p = 0; p + N <= x.length; p += hop) {
+    let e = 0;
+    for (let i = 0; i < N; i++) e += x[p + i] * x[p + i];
+    if (Math.sqrt(e / N) < 0.02) { fr.push(null); continue; }
+    let z = 0;
+    for (let i = 1; i < N; i++) if ((x[p + i] >= 0) !== (x[p + i - 1] >= 0)) z++;
+    let best = 0, bestLag = 0;
+    for (let lag = 20; lag <= 114; lag++) {
+      let r = 0, e1 = 0, e2 = 0;
+      for (let i = 0; i + lag < N; i++) { const a = x[p + i], b = x[p + i + lag]; r += a * b; e1 += a * a; e2 += b * b; }
+      const c = r / (Math.sqrt(e1 * e2) || 1);
+      if (c > best) { best = c; bestLag = lag; }
+    }
+    fr.push(best > 0.5 ? [Math.log(sr / bestLag), z / N] : null);
+  }
+  return { fr, step: hop / sr };
+}
+// how different the voice sounds just before vs just after a moment in time (0 = same)
+function voiceChange(track, t0, t1) {
+  const { fr, step } = track;
+  const pick = (a, b) => fr.slice(Math.max(0, Math.floor(a / step)), Math.max(0, Math.ceil(b / step))).filter(Boolean);
+  const before = pick(t0 - CUT.W, t0), after = pick(t1, t1 + CUT.W);
+  if (before.length < 3 || after.length < 3) return 0;
+  const med = (arr, d) => { const v = arr.map(q => q[d]).sort((m, n) => m - n); return v[v.length >> 1]; };
+  return Math.hypot((med(before, 0) - med(after, 0)) / 0.12, (med(before, 1) - med(after, 1)) / 0.03);
+}
+function cutIntoLines(buf, texts, speakers) {
   const n = texts.length;
   if (n < 2) return [[0, 1]];
   const sr = buf.sampleRate, d = buf.getChannelData(0), T = buf.duration;
@@ -1075,7 +1106,7 @@ function cutIntoLines(buf, texts) {
     const quiet = f < nf && env[f] < thr;
     if (quiet && st < 0) st = f;
     if (!quiet && st >= 0) {
-      if (st > 0 && f < nf && f - st >= 8) gaps.push({ mid: ((st + f) / 2) * hop / sr, len: (f - st) * hop / sr });
+      if (st > 0 && f < nf && f - st >= 8) gaps.push({ mid: ((st + f) / 2) * hop / sr, len: (f - st) * hop / sr, a: st * hop / sr, b: f * hop / sr });
       st = -1;
     }
   }
@@ -1095,9 +1126,16 @@ function cutIntoLines(buf, texts) {
   const inside = (i, j) => longPref[j] - longPref[i]; // clear pauses among gaps[i..j-1]
   const segCost = (dur, e, obs, exp) => ((dur - e) / (CUT.a * e + CUT.b)) ** 2 + CUT.g * (obs - exp) ** 2;
   const bonus = g => CUT.c * Math.min(g.len, CUT.cap); // longer pauses are likelier line breaks
+  // where the script says the speaker changes, the cut should land where the voice audibly changes
+  let vch = null;
+  if (speakers && speakers.length === n && speakers.some((x, k) => k && x !== speakers[k - 1])) {
+    const track = voiceTrack(buf);
+    vch = gaps.map(g => voiceChange(track, g.a, g.b));
+  }
+  const vcost = (k, j) => (vch && speakers[k] !== speakers[k + 1] ? CUT.v * Math.max(0, 1 - vch[j] / CUT.D) : 0); // cut k sits between line k and k+1
   const INF = 1e18, back = [];
   let prev = new Float64Array(G);
-  for (let j = 0; j < G; j++) prev[j] = segCost(gaps[j].mid, E[0], inside(0, j), P[0]) - bonus(gaps[j]);
+  for (let j = 0; j < G; j++) prev[j] = segCost(gaps[j].mid, E[0], inside(0, j), P[0]) - bonus(gaps[j]) + vcost(0, j);
   for (let k = 1; k < n - 1; k++) {
     const cur = new Float64Array(G).fill(INF), bk = new Int32Array(G).fill(-1);
     let bestI = -1, bestV = INF;
@@ -1108,7 +1146,7 @@ function cutIntoLines(buf, texts) {
         const c = prev[i] + segCost(gaps[j].mid - gaps[i].mid, E[k], inside(i + 1, j), P[k]);
         if (c < cur[j]) { cur[j] = c; bk[j] = i; }
       }
-      if (cur[j] < INF) cur[j] -= bonus(gaps[j]);
+      if (cur[j] < INF) cur[j] += vcost(k, j) - bonus(gaps[j]);
     }
     back.push(bk);
     prev = cur;
