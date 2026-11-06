@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – C</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – D</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -229,12 +229,14 @@
     <h2>3) The Conversation</h2>
     <div class="actions">
       <button class="small" id="togglePaste">📋 Paste whole script</button>
+      <button class="small green" id="importClips">📂 Import line clips (one file per line)</button>
       <button class="small green" id="importConvo">📥 Import full conversation (MP3)</button>
       <button class="ghostbtn small" id="swapChars">⇄ Swap characters</button>
       <button class="ghostbtn small" id="addLine1">＋ Line for Character 1</button>
       <button class="ghostbtn small" id="addLine2">＋ Line for Character 2</button>
       <button class="ghostbtn small" id="loadSample">🎬 Load funny taxi sample</button>
       <input type="file" id="convoFile" accept="audio/*,.mp3,.wav,.m4a,.ogg" style="display:none">
+      <input type="file" id="clipFiles" accept="audio/*,.mp3,.wav,.m4a,.ogg" multiple style="display:none">
     </div>
     <div class="status" id="status3"></div>
     <div id="pasteBox" style="display:none;margin-top:10px;">
@@ -902,6 +904,36 @@ async function matchAudioToScript(buf, name, divs) {
     "If a line then holds two lines, tap the wave where the second starts and press ✃ Split here.");
   return true;
 }
+/* many files, one per line: sorted by file name (ElevenLabs names start with the time, so that's the order you made them)
+   and placed on the lines that don't have audio yet, top to bottom */
+$("importClips").onclick = () => $("clipFiles").click();
+$("clipFiles").onchange = async () => {
+  const files = [...$("clipFiles").files].sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
+  $("clipFiles").value = "";
+  if (!files.length) return;
+  stopLive();
+  matchSrc = null;
+  const empty = [...linesEl.children].filter(d => !d._raw);
+  let placed = 0, added = 0, firstNo = 0, lastNo = 0, failed = [];
+  for (let i = 0; i < files.length; i++) {
+    setStatus("", `<span class="spin"></span>Importing clip ${i + 1} of ${files.length}…`);
+    let d = empty[i];
+    if (!d) { d = addLine("1", ""); added++; }
+    try {
+      d._raw = toMono(await audioCtx.decodeAudioData(await files[i].arrayBuffer()));
+      d._rec = true; d._presetSrc = null; d._seg = null; d._sel = null;
+      await reapplyLine(d);
+      const no = [...linesEl.children].indexOf(d) + 1;
+      if (!firstNo) firstNo = no;
+      lastNo = no; placed++;
+    } catch (e) { failed.push(files[i].name); }
+  }
+  invalidateConversation();
+  setStatus(failed.length ? "err" : "ok", `✓ Put ${placed} clip(s) on lines ${firstNo}–${lastNo}, in file-name order.` +
+    (added ? ` ${added} more line(s) were added at the end for the extra clips.` : "") +
+    (failed.length ? ` Couldn't read: ${failed.join(", ")}.` : "") +
+    " Play a few to check. A clip on the wrong line? Use that line's 📁 Import to replace it.");
+};
 $("importConvo").onclick = () => $("convoFile").click();
 $("convoFile").onchange = async () => {
   const f = $("convoFile").files[0];
