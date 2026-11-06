@@ -740,7 +740,9 @@ $("s1name").addEventListener("input", refreshNames);
 $("s2name").addEventListener("input", refreshNames);
 $("addLine1").onclick = () => addLine("1");
 $("addLine2").onclick = () => addLine("2");
+let linesFromSample = false; // the demo taxi lines aren't a real script to match audio to
 $("loadSample").onclick = () => {
+  linesFromSample = true;
   linesEl.innerHTML = "";
   for (const [sp, txt] of SAMPLE) addLine(String(sp), txt);
 };
@@ -794,6 +796,7 @@ function parseScript(raw) {
 }
 
 $("importScript").onclick = () => {
+  linesFromSample = false;
   const { entries, names, unnamed } = parseScript($("scriptPaste").value);
   if (!entries.length) {
     setStatus("err", "Could not read the script. Put each speaker's name on its own line with the dialogue under it, or use 'Name: text'.");
@@ -841,6 +844,21 @@ async function loadConversationAudio(buf, name) {
     (byVoice ? "(guessed by the sound of each voice)." : "(the voices sound alike, so they alternate).") +
     " Wrong? Tap a line's coloured name, or ⇄ Swap characters. Then pick Character 2's Voice effect in section 2.");
 }
+async function matchAudioToScript(buf, name, divs) {
+  const texts = divs.map(d => d.querySelector("textarea").value);
+  const parts = cutIntoLines(buf, texts);
+  if (!parts) return false;
+  for (let k = 0; k < divs.length; k++) {
+    const d = divs[k];
+    d._raw = edgeFade(autoTrim(sliceBuf(buf, parts[k][0], parts[k][1]), 0.012));
+    d._rec = true; d._presetSrc = null; d._sel = null;
+    await reapplyLine(d);
+  }
+  invalidateConversation();
+  setStatus("ok", `✓ ${name}: matched to your ${divs.length} script lines — who's who comes from the script. ` +
+    "Play a few lines to check. If the lines are shifted by one from some point, tell Claude.");
+  return true;
+}
 $("importConvo").onclick = () => $("convoFile").click();
 $("convoFile").onchange = async () => {
   const f = $("convoFile").files[0];
@@ -852,7 +870,11 @@ $("convoFile").onchange = async () => {
   await sleep(30);
   try {
     const buf = toMono(await audioCtx.decodeAudioData(await f.arrayBuffer()));
-    await loadConversationAudio(buf, f.name);
+    const divs = [...linesEl.children];
+    const scriptReady = !linesFromSample && divs.length >= 2 &&
+      divs.every(d => d.querySelector("textarea").value.trim() && !d._raw);
+    if (scriptReady && await matchAudioToScript(buf, f.name, divs)) return;
+    await loadConversationAudio(buf, f.name); // no script: cut at pauses and guess who's who by voice
   } catch (e) {
     setStatus("err", "Couldn't read that file — use MP3, WAV, M4A or OGG. (" + (e.message || e) + ")");
   }
@@ -1029,6 +1051,82 @@ function autoTrim(buf, threshold = 0.015) {
 }
 
 // find voiced segments separated by pauses → returns [aFrac, bFrac] pairs
+// Cut a whole-conversation recording into exactly texts.length pieces.
+// Candidate cuts = quiet gaps; the chosen cuts make each piece about as long as its line's text
+// should take (so a dramatic pause INSIDE a line isn't mistaken for the end of the line).
+const CUT = { a: 0.35, b: 0.6, c: 2, cap: 0.6, g: 1.5 }; // balance between length, punctuation and pause size
+function cutIntoLines(buf, texts) {
+  const n = texts.length;
+  if (n < 2) return [[0, 1]];
+  const sr = buf.sampleRate, d = buf.getChannelData(0), T = buf.duration;
+  const hop = Math.max(1, Math.floor(sr * 0.01)); // 10 ms
+  const nf = Math.floor(d.length / hop);
+  const env = new Float32Array(nf);
+  for (let f = 0; f < nf; f++) {
+    let m = 0;
+    for (let k = f * hop, e = k + hop; k < e; k++) { const a = Math.abs(d[k]); if (a > m) m = a; }
+    env[f] = m;
+  }
+  const sorted = Float32Array.from(env).sort();
+  const thr = Math.max(0.006, (sorted[Math.floor(nf * 0.95)] || 0.1) * 0.06);
+  const gaps = [];
+  let st = -1;
+  for (let f = 0; f <= nf; f++) {
+    const quiet = f < nf && env[f] < thr;
+    if (quiet && st < 0) st = f;
+    if (!quiet && st >= 0) {
+      if (st > 0 && f < nf && f - st >= 8) gaps.push({ mid: ((st + f) / 2) * hop / sr, len: (f - st) * hop / sr });
+      st = -1;
+    }
+  }
+  const G = gaps.length;
+  if (G < n - 1) return null;
+  const spoken = texts.map(t => t.replace(/\[[^\]]*\]|\([^)]*\)/g, "").trim());
+  const w = spoken.map(t => Math.max(4, t.length));
+  const W = w.reduce((a, b) => a + b, 0);
+  const E = w.map(x => (x / W) * T); // expected seconds per line
+  // pauses the text itself predicts INSIDE each line (… . ! ? ، before the last word)
+  const P = spoken.map(t => {
+    const body = t.replace(/[\s….!?؟،,]+$/, "");
+    return (body.match(/…|\.\.\.|[.!?؟]/g) || []).length + 0.4 * (body.match(/[،,]/g) || []).length;
+  });
+  const longPref = new Int32Array(G + 1); // how many clear pauses (≥0.2 s) among gaps[0..x-1]
+  for (let x = 0; x < G; x++) longPref[x + 1] = longPref[x] + (gaps[x].len >= 0.2 ? 1 : 0);
+  const inside = (i, j) => longPref[j] - longPref[i]; // clear pauses among gaps[i..j-1]
+  const segCost = (dur, e, obs, exp) => ((dur - e) / (CUT.a * e + CUT.b)) ** 2 + CUT.g * (obs - exp) ** 2;
+  const bonus = g => CUT.c * Math.min(g.len, CUT.cap); // longer pauses are likelier line breaks
+  const INF = 1e18, back = [];
+  let prev = new Float64Array(G);
+  for (let j = 0; j < G; j++) prev[j] = segCost(gaps[j].mid, E[0], inside(0, j), P[0]) - bonus(gaps[j]);
+  for (let k = 1; k < n - 1; k++) {
+    const cur = new Float64Array(G).fill(INF), bk = new Int32Array(G).fill(-1);
+    let bestI = -1, bestV = INF;
+    for (let j = k; j < G; j++) {
+      // best predecessor i < j (scan incrementally)
+      for (let i = Math.max(k - 1, 0); i < j; i++) {
+        if (prev[i] >= INF) continue;
+        const c = prev[i] + segCost(gaps[j].mid - gaps[i].mid, E[k], inside(i + 1, j), P[k]);
+        if (c < cur[j]) { cur[j] = c; bk[j] = i; }
+      }
+      if (cur[j] < INF) cur[j] -= bonus(gaps[j]);
+    }
+    back.push(bk);
+    prev = cur;
+  }
+  let best = INF, bj = -1;
+  for (let j = 0; j < G; j++) {
+    if (prev[j] >= INF) continue;
+    const c = prev[j] + segCost(T - gaps[j].mid, E[n - 1], inside(j + 1, G), P[n - 1]);
+    if (c < best) { best = c; bj = j; }
+  }
+  if (bj < 0) return null;
+  const cuts = [bj];
+  for (let k = back.length - 1; k >= 0; k--) cuts.push(back[k][cuts[cuts.length - 1]]);
+  cuts.reverse();
+  const pts = [0, ...cuts.map(j => gaps[j].mid / T), 1];
+  return pts.slice(0, -1).map((a, k) => [a, pts[k + 1]]);
+}
+
 // rough "voice fingerprint" of a clip: median pitch + brightness (zero-crossing rate)
 function voiceFeatures(buf) {
   const sr = 8000, N = 320; // 40 ms frames at 8 kHz
