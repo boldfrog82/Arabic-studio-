@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">6 Nov – F</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – A</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -232,12 +232,12 @@
       <button class="small green" id="importClips">📂 Import line clips (one file per line)</button>
       <button class="small green" id="importConvo">📥 Import full conversation (MP3)</button>
       <button class="ghostbtn small" id="swapChars">⇄ Swap characters</button>
-      <button class="small" id="addClip1">＋📁 <span class="n1">Character 1</span>'s clip</button>
-      <button class="small green" id="addClip2">＋📁 <span class="n2">Character 2</span>'s clip</button>
+      <button class="small" id="addLine1">＋ <span class="n1">Character 1</span>'s line (text)</button>
+      <button class="small green" id="addLine2">＋ <span class="n2">Character 2</span>'s line (text)</button>
       <button class="ghostbtn small" id="clearLines">🧹 Clear all lines</button>
+      <button class="ghostbtn small" id="addClip1">＋📁 <span class="n1">Character 1</span>'s audio clip</button>
+      <button class="ghostbtn small" id="addClip2">＋📁 <span class="n2">Character 2</span>'s audio clip</button>
       <input type="file" id="clipOne" accept="audio/*,.mp3,.wav,.m4a,.ogg" style="display:none">
-      <button class="ghostbtn small" id="addLine1">＋ Line for Character 1</button>
-      <button class="ghostbtn small" id="addLine2">＋ Line for Character 2</button>
       <button class="ghostbtn small" id="loadSample">🎬 Load funny taxi sample</button>
       <input type="file" id="convoFile" accept="audio/*,.mp3,.wav,.m4a,.ogg" style="display:none">
       <input type="file" id="clipFiles" accept="audio/*,.mp3,.wav,.m4a,.ogg" multiple style="display:none">
@@ -790,7 +790,7 @@ $("clearLines").onclick = () => {
   linesEl.innerHTML = "";
   matchSrc = null;
   invalidateConversation();
-  setStatus("ok", "All lines removed. Start with ＋📁 for whoever speaks first.");
+  setStatus("ok", "All lines removed. Tap ＋ " + ($("s1name").value || "Character 1") + "'s line or ＋ " + ($("s2name").value || "Character 2") + "'s line, then paste the text (Ctrl + V).");
 };
 // a file dropped outside a line box must not make Chrome open it (that would leave the studio and lose your work)
 window.addEventListener("dragover", e => { if ([...(e.dataTransfer?.types || [])].includes("Files")) e.preventDefault(); });
