@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – A</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – B</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -998,17 +998,24 @@ $("convoFile").onchange = async () => {
   const f = $("convoFile").files[0];
   $("convoFile").value = "";
   if (!f) return;
-  if ([...linesEl.children].some(d => d._raw) && !confirm("Replace the current lines with this conversation?")) return;
+  const all = [...linesEl.children];
+  // your typed lines are the script: every line with text (not the demo lines) gets its piece of the recording
+  const scriptLines = all.filter(d => !d.dataset.sample && d.querySelector("textarea").value.trim());
+  const useScript = scriptLines.length >= 2;
+  if (useScript && scriptLines.some(d => d._raw) && !confirm("Your lines already have audio. Replace it with this file?")) return;
+  if (!useScript && all.some(d => d._raw) && !confirm("Replace the current lines with this conversation?")) return;
   stopLive();
   setStatus("", '<span class="spin"></span>Reading the file and cutting it into lines…');
   await sleep(30);
   try {
     const buf = toMono(await audioCtx.decodeAudioData(await f.arrayBuffer()));
-    const divs = [...linesEl.children];
-    const scriptReady = !divs.some(d => d.dataset.sample) && divs.length >= 2 &&
-      divs.every(d => d.querySelector("textarea").value.trim() && !d._raw);
-    if (scriptReady && await matchAudioToScript(buf, f.name, divs)) return;
-    await loadConversationAudio(buf, f.name); // no script: cut at pauses and guess who's who by voice
+    if (useScript) {
+      all.filter(d => !scriptLines.includes(d)).forEach(d => d.remove()); // empty lines and demo lines
+      if (!await matchAudioToScript(buf, f.name, scriptLines))
+        setStatus("err", `Couldn't fit this recording to your ${scriptLines.length} lines — it has fewer pauses than lines. Check you used the same text on ElevenLabs.`);
+      return; // never throw away a typed script to guess instead
+    }
+    await loadConversationAudio(buf, f.name); // no script at all: cut at pauses and guess who's who by voice
   } catch (e) {
     setStatus("err", "Couldn't read that file — use MP3, WAV, M4A or OGG. (" + (e.message || e) + ")");
   }
