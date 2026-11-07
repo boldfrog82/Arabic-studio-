@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – B</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – C</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -232,6 +232,7 @@
       <button class="small green" id="importClips">📂 Import line clips (one file per line)</button>
       <button class="small green" id="importConvo">📥 Import full conversation (MP3)</button>
       <button class="ghostbtn small" id="swapChars">⇄ Swap characters</button>
+      <button class="ghostbtn small" id="copyForEL">📤 Copy text for ElevenLabs (no names)</button>
       <button class="small" id="addLine1">＋ <span class="n1">Character 1</span>'s line (text)</button>
       <button class="small green" id="addLine2">＋ <span class="n2">Character 2</span>'s line (text)</button>
       <button class="ghostbtn small" id="clearLines">🧹 Clear all lines</button>
@@ -882,7 +883,7 @@ $("importScript").onclick = () => {
   refreshNames();
   invalidateConversation();
   $("pasteBox").style.display = "none";
-  if (unnamed) setStatus("err", `⚠ Imported ${entries.length} lines, but there were no speaker names, so they're ALL on ${$("s1name").value || "Character 1"}. If you import the ElevenLabs MP3 next, who's who will be guessed by voice. Or add names (جيم: / الشبح:) and import again.` + " Next: 📥 Import full conversation (MP3) if you made the audio on ElevenLabs — or 🎙️ Generate all voices to make it here.");
+  if (unnamed) setStatus("err", `⚠ Imported ${entries.length} lines, but there were no speaker names, so they're ALL on ${$("s1name").value || "Character 1"}. Put the names in front of each line (جيم: / الشبح:) and import again — two similar ElevenLabs voices can't be told apart reliably without them.` + " Next: 📥 Import full conversation (MP3) if you made the audio on ElevenLabs — or 🎙️ Generate all voices to make it here.");
   else {
     const extra = names.filter(n => n !== first && n !== second);
     setStatus("ok", `✓ Imported ${entries.length} lines — ${first || "Char 1"}: ${c1}, ${second || "Char 2"}: ${c2}.` +
@@ -1018,6 +1019,21 @@ $("convoFile").onchange = async () => {
     await loadConversationAudio(buf, f.name); // no script at all: cut at pauses and guess who's who by voice
   } catch (e) {
     setStatus("err", "Couldn't read that file — use MP3, WAV, M4A or OGG. (" + (e.message || e) + ")");
+  }
+};
+// the same lines without the names, so ElevenLabs gets exactly the studio's text (and doesn't read the names aloud)
+$("copyForEL").onclick = async () => {
+  const lines = [...linesEl.children].filter(d => !d.dataset.sample).map(d => d.querySelector("textarea").value.trim()).filter(Boolean);
+  if (!lines.length) { setStatus("err", "No lines yet — paste your script with names first (📋 Paste whole script)."); return; }
+  const text = lines.join("\n");
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus("ok", `✓ Copied ${lines.length} lines without names. Paste them into ElevenLabs, give each paragraph its voice, then bring the MP3 back with 📥 Import full conversation.`);
+  } catch (e) {
+    const box = $("scriptPaste");
+    $("pasteBox").style.display = "block";
+    box.value = text; box.focus(); box.select();
+    setStatus("ok", "Couldn't copy automatically — the text is selected in the box below: press Ctrl + C. (Don't press Import script with it.)");
   }
 };
 $("swapChars").onclick = async () => {
