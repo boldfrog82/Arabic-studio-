@@ -130,7 +130,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – C</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">7 Nov – D</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -663,6 +663,7 @@ function addLine(speaker, text = "") {
   who.title = "click to switch this line to the other character";
   who.onclick = () => {
     div.dataset.speaker = div.dataset.speaker === "1" ? "2" : "1";
+    delete div.dataset.who; // the script's name no longer applies
     refreshNames();
     invalidateConversation();
     if (div._raw) reapplyLine(div).catch(e => setLineState(div, "err", e.message)); // take the new character's effect
@@ -878,7 +879,7 @@ $("importScript").onclick = () => {
   for (const [name, txt] of entries) {
     const sp = name === first ? "1" : "2";
     if (sp === "1") c1++; else c2++;
-    addLine(sp, txt);
+    addLine(sp, txt).dataset.who = name; // keep the script's own name (a 3rd character can share a voice slot)
   }
   refreshNames();
   invalidateConversation();
@@ -949,6 +950,24 @@ async function matchAudioToScript(buf, name, divs) {
     // (with one voice reading everything, "voice changes" are just emotions and make the cut worse)
     const withVoice = cutIntoLines(buf, texts, divs.map(d => d.dataset.speaker));
     if (withVoice && withVoice.fit <= 1.25 * parts.fit) parts = withVoice;
+    // then learn what the two main voices sound like from this first cut, and cut again so every
+    // line holds the voice its name says (catches a short reply glued onto the line before it)
+    setStatus("", `<span class="spin"></span>Listening to the two voices…`);
+    await sleep(30);
+    const n1 = $("s1name").value, n2 = $("s2name").value;
+    const who = divs.map(d => d.dataset.who || (d.dataset.speaker === "1" ? n1 : n2));
+    const count = {};
+    who.forEach(w => (count[w] = (count[w] || 0) + 1));
+    const top = Object.keys(count).sort((a, b) => count[b] - count[a]).slice(0, 2);
+    const cls = who.map(w => top.indexOf(w));
+    const track = mfccTrack(buf), T = buf.duration;
+    for (let round = 0; round < 2; round++) {
+      const odds = voiceOdds(track, parts.map(([a, b]) => [a * T, b * T]), cls);
+      if (!odds || odds.sep < 1) break; // the two names don't sound different (same voice for both?)
+      const next = cutIntoLines(buf, texts, null, { odds, cls });
+      if (!next) break;
+      parts = next;
+    }
   }
   let note = "who's who comes from the script.";
   if (sameSpeaker) {
@@ -1218,7 +1237,7 @@ function textPause(t) {
   body = body.replace(/…|\.\.\./g, " ");
   return 0.45 * ell + 0.3 * (body.match(/[.!?؟]/g) || []).length + 0.25 * (body.match(/:/g) || []).length + 0.12 * (body.match(/[،,]/g) || []).length;
 }
-const CUT = { a: 0.35, b: 0.4, c: 2, cap: 0.6, g: 0.25, v: 3, D: 1.5, W: 0.6 }; // balance between length, punctuation, pause size, voice change
+const CUT = { a: 0.35, b: 0.4, c: 2.5, cap: 0.6, g: 0.15, u: 0.5, v: 3, D: 1.5, W: 0.6, s: 4 }; // balance between length, punctuation, pause size, voice change, who's talking
 // per-frame pitch + brightness over a whole recording (8 kHz, 80 ms steps)
 function voiceTrack(buf) {
   const sr = 8000, N = 320, hop = 640;
@@ -1250,7 +1269,7 @@ function voiceChange(track, t0, t1) {
   const med = (arr, d) => { const v = arr.map(q => q[d]).sort((m, n) => m - n); return v[v.length >> 1]; };
   return Math.hypot((med(before, 0) - med(after, 0)) / 0.12, (med(before, 1) - med(after, 1)) / 0.03);
 }
-function cutIntoLines(buf, texts, speakers) {
+function cutIntoLines(buf, texts, speakers, spk) {
   const n = texts.length;
   if (n < 2) return [[0, 1]];
   const sr = buf.sampleRate, d = buf.getChannelData(0), T = buf.duration;
@@ -1295,7 +1314,8 @@ function cutIntoLines(buf, texts, speakers) {
   const longPref = new Int32Array(G + 1); // how many clear pauses (≥0.2 s) among gaps[0..x-1]
   for (let x = 0; x < G; x++) longPref[x + 1] = longPref[x] + (gaps[x].len >= 0.2 ? 1 : 0);
   const inside = (i, j) => longPref[j] - longPref[i]; // clear pauses among gaps[i..j-1]
-  const segCost = (t0, t1, e, obs, exp) => ((talk(t0, t1) - e) / (CUT.a * e + CUT.b)) ** 2 + CUT.g * (obs - exp) ** 2;
+  // fewer pauses than the punctuation suggests is common (a fluent read); an extra one often means another line crept in
+  const segCost = (t0, t1, e, obs, exp) => ((talk(t0, t1) - e) / (CUT.a * e + CUT.b)) ** 2 + CUT.g * (obs > exp ? 1 : CUT.u) * (obs - exp) ** 2;
   const bonus = g => CUT.c * Math.min(g.len, CUT.cap); // longer pauses are likelier line breaks
   // where the script says the speaker changes, the cut should land where the voice audibly changes
   let vch = null;
@@ -1304,9 +1324,11 @@ function cutIntoLines(buf, texts, speakers) {
     vch = gaps.map(g => voiceChange(track, g.a, g.b));
   }
   const vcost = (k, j) => (vch && speakers[k] !== speakers[k + 1] ? CUT.v * Math.max(0, 1 - vch[j] / CUT.D) : 0); // cut k sits between line k and k+1
+  // seconds of the OTHER voice inside line k (voices learned from the recording itself, see voiceOdds)
+  const wrongVoice = (t0, t1, k) => (spk && spk.cls[k] >= 0 ? CUT.s * spk.odds.wrong(t0, t1, spk.cls[k]) : 0);
   const INF = 1e18, back = [];
   let prev = new Float64Array(G);
-  for (let j = 0; j < G; j++) prev[j] = segCost(0, gaps[j].mid, E[0], inside(0, j), P[0]) - bonus(gaps[j]) + vcost(0, j);
+  for (let j = 0; j < G; j++) prev[j] = segCost(0, gaps[j].mid, E[0], inside(0, j), P[0]) + wrongVoice(0, gaps[j].mid, 0) - bonus(gaps[j]) + vcost(0, j);
   for (let k = 1; k < n - 1; k++) {
     const cur = new Float64Array(G).fill(INF), bk = new Int32Array(G).fill(-1);
     let bestI = -1, bestV = INF;
@@ -1314,7 +1336,7 @@ function cutIntoLines(buf, texts, speakers) {
       // best predecessor i < j (scan incrementally)
       for (let i = Math.max(k - 1, 0); i < j; i++) {
         if (prev[i] >= INF) continue;
-        const c = prev[i] + segCost(gaps[i].mid, gaps[j].mid, E[k], inside(i + 1, j), P[k]);
+        const c = prev[i] + segCost(gaps[i].mid, gaps[j].mid, E[k], inside(i + 1, j), P[k]) + wrongVoice(gaps[i].mid, gaps[j].mid, k);
         if (c < cur[j]) { cur[j] = c; bk[j] = i; }
       }
       if (cur[j] < INF) cur[j] += vcost(k, j) - bonus(gaps[j]);
@@ -1325,7 +1347,7 @@ function cutIntoLines(buf, texts, speakers) {
   let best = INF, bj = -1;
   for (let j = 0; j < G; j++) {
     if (prev[j] >= INF) continue;
-    const c = prev[j] + segCost(gaps[j].mid, T, E[n - 1], inside(j + 1, G), P[n - 1]);
+    const c = prev[j] + segCost(gaps[j].mid, T, E[n - 1], inside(j + 1, G), P[n - 1]) + wrongVoice(gaps[j].mid, T, n - 1);
     if (c < best) { best = c; bj = j; }
   }
   if (bj < 0) return null;
@@ -1336,6 +1358,120 @@ function cutIntoLines(buf, texts, speakers) {
   const parts = pts.slice(0, -1).map((a, k) => [a, pts[k + 1]]);
   parts.fit = parts.reduce((c, [a, b], k) => c + ((talk(a * T, b * T) - E[k]) / (CUT.a * E[k] + CUT.b)) ** 2, 0);
   return parts;
+}
+
+/* ---- telling two voices apart, learned from the recording itself ----
+   Pitch can't separate two deep male voices; the "colour" of the voice (MFCCs) can.
+   A first cut by length shows which stretches belong to which name; from those we learn
+   each voice, then cut again, preferring cuts where the voice matches the script's name. */
+function mfccTrack(buf) {
+  const sr = 16000, N = 400, hop = 160, NF = 512, M = 26, C = 20;
+  const x = resampleBuffer(buf, sr).getChannelData(0);
+  const mel = f => 2595 * Math.log10(1 + f / 700), imel = m => 700 * (10 ** (m / 2595) - 1);
+  const lo = mel(80), hi = mel(7600);
+  const bin = Array.from({ length: M + 2 }, (_, i) => Math.round(imel(lo + (hi - lo) * i / (M + 1)) * NF / sr));
+  const win = Float32Array.from({ length: N }, (_, i) => 0.54 - 0.46 * Math.cos(2 * Math.PI * i / (N - 1)));
+  const nfr = Math.max(0, Math.floor((x.length - N) / hop) + 1);
+  const feat = new Float32Array(nfr * C), rms = new Float32Array(nfr);
+  const re = new Float64Array(NF), im = new Float64Array(NF), lm = new Float64Array(M);
+  const dct = Float64Array.from({ length: C * M }, (_, q) => Math.cos(Math.PI * (Math.floor(q / M) + 1) * ((q % M) + 0.5) / M));
+  for (let f = 0; f < nfr; f++) {
+    re.fill(0); im.fill(0);
+    let e = 0;
+    for (let i = 0; i < N; i++) { const v = x[f * hop + i]; e += v * v; re[i] = v * win[i]; }
+    rms[f] = Math.sqrt(e / N);
+    fft(re, im, false);
+    for (let m = 0; m < M; m++) {
+      let s = 0;
+      for (let k = bin[m]; k < bin[m + 2]; k++) {
+        const wgt = k < bin[m + 1] ? (k - bin[m]) / Math.max(1, bin[m + 1] - bin[m]) : (bin[m + 2] - k) / Math.max(1, bin[m + 2] - bin[m + 1]);
+        s += wgt * (re[k] * re[k] + im[k] * im[k]);
+      }
+      lm[m] = Math.log(s + 1e-10);
+    }
+    for (let c = 0; c < C; c++) {
+      let s = 0;
+      for (let m = 0; m < M; m++) s += lm[m] * dct[c * M + m];
+      feat[f * C + c] = s;
+    }
+  }
+  return { feat, rms, nfr, C, step: hop / sr };
+}
+// solve A x = b (small, symmetric positive) by Gaussian elimination
+function solveSmall(A, b) {
+  const n = b.length, M = A.map((r, i) => [...r, b[i]]);
+  for (let c = 0; c < n; c++) {
+    let p = c;
+    for (let r = c + 1; r < n; r++) if (Math.abs(M[r][c]) > Math.abs(M[p][c])) p = r;
+    [M[c], M[p]] = [M[p], M[c]];
+    if (Math.abs(M[c][c]) < 1e-12) return null;
+    for (let r = 0; r < n; r++) {
+      if (r === c) continue;
+      const f = M[r][c] / M[c][c];
+      for (let k = c; k <= n; k++) M[r][k] -= f * M[c][k];
+    }
+  }
+  return M.map((r, i) => r[n] / r[i]);
+}
+// learn voice 0 vs voice 1 from where a cut put each line (parts in seconds, cls 0/1/-1 per line);
+// returns how well they separate and wrong(t0, t1, c) = seconds in [t0,t1] that sound like the other voice
+function voiceOdds(track, parts, cls) {
+  const { feat, rms, nfr, C, step } = track;
+  const srt = Float32Array.from(rms).sort();
+  const loudThr = (srt[Math.floor(nfr * 0.95)] || 0) * 0.1;
+  const frames = [[], []];
+  parts.forEach(([a, b], k) => {
+    const c = cls[k];
+    if (c !== 0 && c !== 1) return;
+    for (let f = Math.ceil((a + 0.15) / step); f < Math.min(nfr, Math.floor((b - 0.15) / step)); f++) if (rms[f] > loudThr) frames[c].push(f);
+  });
+  if (frames[0].length < 150 || frames[1].length < 150) return null; // need ~1.5 s of each voice
+  const mu = frames.map(fs => {
+    const m = new Float64Array(C);
+    for (const f of fs) for (let c = 0; c < C; c++) m[c] += feat[f * C + c];
+    return m.map(v => v / fs.length);
+  });
+  const S = Array.from({ length: C }, () => new Float64Array(C));
+  frames.forEach((fs, g) => {
+    for (const f of fs) for (let i = 0; i < C; i++) {
+      const di = feat[f * C + i] - mu[g][i];
+      for (let j = 0; j < C; j++) S[i][j] += di * (feat[f * C + j] - mu[g][j]);
+    }
+  });
+  const tot = frames[0].length + frames[1].length;
+  let tr = 0;
+  for (let i = 0; i < C; i++) { for (let j = 0; j < C; j++) S[i][j] /= tot; tr += S[i][i]; }
+  for (let i = 0; i < C; i++) S[i][i] += 1e-3 * tr / C;
+  const w = solveSmall(S.map(r => [...r]), [...mu[1]].map((v, i) => v - mu[0][i]));
+  if (!w) return null;
+  const proj = f => { let s = 0; for (let c = 0; c < C; c++) s += w[c] * feat[f * C + c]; return s; };
+  const y0 = w.reduce((s, v, c) => s + v * mu[0][c], 0), y1 = w.reduce((s, v, c) => s + v * mu[1][c], 0);
+  let v2 = 0;
+  frames.forEach((fs, g) => { const m = g ? y1 : y0; for (const f of fs) v2 += (proj(f) - m) ** 2; });
+  v2 /= tot;
+  const sep = (y1 - y0) / Math.sqrt(v2 || 1e-9); // how far apart the two voices are (in spreads)
+  let ok = 0;
+  frames.forEach((fs, g) => { for (const f of fs) if ((proj(f) > (y0 + y1) / 2) === (g === 1)) ok++; });
+  // chance each loud frame is voice 1, smoothed over ~0.1 s of loud frames
+  const llr = new Float32Array(nfr), on = new Uint8Array(nfr);
+  for (let f = 0; f < nfr; f++) if (rms[f] > loudThr) { on[f] = 1; llr[f] = Math.max(-4, Math.min(4, (y1 - y0) * (proj(f) - (y0 + y1) / 2) / v2)); }
+  const pre0 = new Float64Array(nfr + 1), pre1 = new Float64Array(nfr + 1);
+  for (let f = 0; f < nfr; f++) {
+    let p = 0;
+    if (on[f]) {
+      let s = 0, m = 0;
+      for (let g = Math.max(0, f - 5); g <= Math.min(nfr - 1, f + 5); g++) if (on[g]) { s += llr[g]; m++; }
+      p = 1 / (1 + Math.exp(-s / m));
+    }
+    pre1[f + 1] = pre1[f] + (on[f] ? p * step : 0);
+    pre0[f + 1] = pre0[f] + (on[f] ? (1 - p) * step : 0);
+  }
+  const at = t => Math.max(0, Math.min(nfr, Math.round(t / step)));
+  return {
+    sep, acc: ok / tot,
+    wrong: (t0, t1, c) => (c === 0 ? pre1[at(t1)] - pre1[at(t0)] : pre0[at(t1)] - pre0[at(t0)]),
+    voice1: (t0, t1) => { const a = pre1[at(t1)] - pre1[at(t0)], b = pre0[at(t1)] - pre0[at(t0)]; return a + b > 0 ? a / (a + b) : 0.5; },
+  };
 }
 
 // rough "voice fingerprint" of a clip: median pitch + brightness (zero-crossing rate)
