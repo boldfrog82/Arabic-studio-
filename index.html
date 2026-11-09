@@ -138,7 +138,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">9 Nov – C</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">9 Nov – D</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -202,19 +202,23 @@
         </div>
       </div>
       <details class="vshape" id="s1shape" open>
-        <summary>🟣 🎚️ Change <b class="n1">Character 1</b>'s voice · غيّر صوت <b class="n1">Character 1</b> — deeper, older, bigger, younger, raspy…</summary>
+        <summary>🟣 🎚️ Change <b class="n1">Character 1</b>'s voice · غيّر صوت <b class="n1">Character 1</b> — 30+ voices: real people &amp; 🎨 cartoon</summary>
         <div class="vgrid">
-          <div><label>Voice type</label><select id="s1vtype"></select></div>
-          <div><label>Pitch: <span id="s1vpitchv">0</span></label><input type="range" id="s1vpitch" min="-8" max="8" step="0.5" value="0"></div>
-          <div><label>Body size: <span id="s1vsizev">0</span></label><input type="range" id="s1vsize" min="-100" max="100" step="5" value="0"></div>
-          <div><label>Rough / raspy: <span id="s1vroughv">0</span></label><input type="range" id="s1vrough" min="0" max="100" step="5" value="0"></div>
-          <div><label>Talk speed: <span id="s1vtempov">100</span>%</label><input type="range" id="s1vtempo" min="70" max="140" step="2" value="100"></div>
+          <div><label>Voice type (👤 real people · 🎨 cartoon)</label><select id="s1vtype"></select></div>
+          <div><label>🎵 Pitch (high / low): <span id="s1vpitchv">0</span></label><input type="range" id="s1vpitch" min="-12" max="12" step="0.5" value="0"></div>
+          <div><label>📏 Body size: <span id="s1vsizev">0</span></label><input type="range" id="s1vsize" min="-150" max="150" step="5" value="0"></div>
+          <div><label>🎢 Ups &amp; downs: <span id="s1vmelodyv">100%</span></label><input type="range" id="s1vmelody" min="0" max="250" step="5" value="100"></div>
+          <div><label>〰️ Shaky / wobble: <span id="s1vwobblev">0</span></label><input type="range" id="s1vwobble" min="0" max="100" step="5" value="0"></div>
+          <div><label>👃 Nasal (through the nose): <span id="s1vnasalv">0</span></label><input type="range" id="s1vnasal" min="0" max="100" step="5" value="0"></div>
+          <div><label>🪨 Rough / raspy: <span id="s1vroughv">0</span></label><input type="range" id="s1vrough" min="0" max="100" step="5" value="0"></div>
+          <div><label>⏩ Talk speed: <span id="s1vtempov">100</span>%</label><input type="range" id="s1vtempo" min="60" max="150" step="1" value="100"></div>
         </div>
         <div class="actions">
           <button class="small" id="s1vhear">▶ Hear <span class="n1">Character 1</span></button>
+          <button class="small green" id="s1vrandom">🎲 Random voice</button>
           <button class="ghostbtn small" id="s1vreset">↺ Back to the original voice</button>
         </div>
-        <div class="hint">Changes every line of <span class="n1">Character 1</span> at once — no AI, no key, free. Pitch = high/low note · Body size = bigger, older man ↔ smaller, younger · Rough = raspy smoker voice. The 🎭 Voice effect above is added on top.</div>
+        <div class="hint">Changes every line of <span class="n1">Character 1</span> at once — no AI, no key, free. 🎵 Pitch = high/low note · 📏 Body size = bigger, older ↔ smaller, younger (cartoon at the ends) · 🎢 Ups &amp; downs: 0 = flat robot, 100 = normal, 200 = sing-song cartoon · 〰️ Shaky = trembling · 👃 Nasal · 🪨 Rough = raspy. The 🎭 Voice effect above is added on top.</div>
       </details>
     </div>
 
@@ -239,19 +243,23 @@
         </div>
       </div>
       <details class="vshape" id="s2shape">
-        <summary>🟢 🎚️ Change <b class="n2">Character 2</b>'s voice · غيّر صوت <b class="n2">Character 2</b> — deeper, older, bigger, younger, raspy…</summary>
+        <summary>🟢 🎚️ Change <b class="n2">Character 2</b>'s voice · غيّر صوت <b class="n2">Character 2</b> — 30+ voices: real people &amp; 🎨 cartoon</summary>
         <div class="vgrid">
-          <div><label>Voice type</label><select id="s2vtype"></select></div>
-          <div><label>Pitch: <span id="s2vpitchv">0</span></label><input type="range" id="s2vpitch" min="-8" max="8" step="0.5" value="0"></div>
-          <div><label>Body size: <span id="s2vsizev">0</span></label><input type="range" id="s2vsize" min="-100" max="100" step="5" value="0"></div>
-          <div><label>Rough / raspy: <span id="s2vroughv">0</span></label><input type="range" id="s2vrough" min="0" max="100" step="5" value="0"></div>
-          <div><label>Talk speed: <span id="s2vtempov">100</span>%</label><input type="range" id="s2vtempo" min="70" max="140" step="2" value="100"></div>
+          <div><label>Voice type (👤 real people · 🎨 cartoon)</label><select id="s2vtype"></select></div>
+          <div><label>🎵 Pitch (high / low): <span id="s2vpitchv">0</span></label><input type="range" id="s2vpitch" min="-12" max="12" step="0.5" value="0"></div>
+          <div><label>📏 Body size: <span id="s2vsizev">0</span></label><input type="range" id="s2vsize" min="-150" max="150" step="5" value="0"></div>
+          <div><label>🎢 Ups &amp; downs: <span id="s2vmelodyv">100%</span></label><input type="range" id="s2vmelody" min="0" max="250" step="5" value="100"></div>
+          <div><label>〰️ Shaky / wobble: <span id="s2vwobblev">0</span></label><input type="range" id="s2vwobble" min="0" max="100" step="5" value="0"></div>
+          <div><label>👃 Nasal (through the nose): <span id="s2vnasalv">0</span></label><input type="range" id="s2vnasal" min="0" max="100" step="5" value="0"></div>
+          <div><label>🪨 Rough / raspy: <span id="s2vroughv">0</span></label><input type="range" id="s2vrough" min="0" max="100" step="5" value="0"></div>
+          <div><label>⏩ Talk speed: <span id="s2vtempov">100</span>%</label><input type="range" id="s2vtempo" min="60" max="150" step="1" value="100"></div>
         </div>
         <div class="actions">
           <button class="small" id="s2vhear">▶ Hear <span class="n2">Character 2</span></button>
+          <button class="small green" id="s2vrandom">🎲 Random voice</button>
           <button class="ghostbtn small" id="s2vreset">↺ Back to the original voice</button>
         </div>
-        <div class="hint">Changes every line of <span class="n2">Character 2</span> at once — no AI, no key, free. Pitch = high/low note · Body size = bigger, older man ↔ smaller, younger · Rough = raspy smoker voice. The 🎭 Voice effect above is added on top.</div>
+        <div class="hint">Changes every line of <span class="n2">Character 2</span> at once — no AI, no key, free. 🎵 Pitch = high/low note · 📏 Body size = bigger, older ↔ smaller, younger (cartoon at the ends) · 🎢 Ups &amp; downs: 0 = flat robot, 100 = normal, 200 = sing-song cartoon · 〰️ Shaky = trembling · 👃 Nasal · 🪨 Rough = raspy. The 🎭 Voice effect above is added on top.</div>
       </details>
     </div>
 
@@ -2189,26 +2197,55 @@ for (const id of ["s1amt", "s2amt"]) {
 }
 
 /* ---- 🎚️ change a character's own voice (all their lines) ---- */
-const VOICE_TYPES = [ // id, label, pitch (semitones), body size, rough, speed %
-  ["orig",    "🎤 Original voice",          0,    0,  0, 100],
-  ["deeper",  "🧔 Deeper man",              -3,   30,  0, 100],
-  ["big",     "🐻 Big heavy guy",           -4,   60, 15,  95],
-  ["old",     "👴 Old man",                 -1,   25, 50,  88],
-  ["smoker",  "🚬 Raspy smoker",            -2,   15, 70, 100],
-  ["tough",   "💪 Tough guy",               -2,   40, 30,  96],
-  ["young",   "🧑 Young guy",                2,  -25,  0, 104],
-  ["nervous", "😬 Thin, nervous guy",        4,  -40, 10, 110],
-  ["teen",    "🧒 Teenager",                 5,  -55,  0, 105],
-  ["cartoon", "🤡 Cartoon / funny",          6,  -75,  0, 108],
-  ["woman",   "👩 Woman",                    8,  -50,  0, 100],
-  ["custom",  "✏️ My own mix (sliders)",   null, null, null, null],
+// id, label, [pitch (semitones), body size, rough, speed %, ups & downs %, shaky, nasal]; id "" starts a group
+const VOICE_TYPES = [
+  ["orig",     "🎤 Original voice",          [0, 0, 0, 100, 100, 0, 0]],
+  ["",         "👤 Real people"],
+  ["deeper",   "🧔 Deeper man",              [-3, 30, 0, 100, 100, 0, 0]],
+  ["big",      "🐻 Big heavy guy",           [-4, 60, 10, 95, 100, 0, 0]],
+  ["tough",    "💪 Tough guy",               [-2, 40, 25, 96, 90, 0, 0]],
+  ["hero",     "🦸 Movie hero",              [-3, 45, 10, 95, 125, 0, 0]],
+  ["old",      "👴 Old man",                 [-1, 25, 40, 88, 90, 25, 0]],
+  ["grandma",  "👵 Old woman",               [6, -45, 25, 90, 110, 30, 0]],
+  ["smoker",   "🚬 Raspy smoker",            [-2, 15, 65, 100, 100, 0, 0]],
+  ["young",    "🧑 Young guy",               [2, -25, 0, 104, 110, 0, 0]],
+  ["teen",     "🧒 Teenager",                [5, -55, 0, 105, 120, 0, 0]],
+  ["boy",      "👦 Little boy",              [8, -95, 0, 102, 130, 0, 0]],
+  ["woman",    "👩 Woman",                   [8, -50, 0, 100, 115, 0, 0]],
+  ["nervous",  "😬 Nervous guy",             [4, -40, 10, 110, 120, 30, 0]],
+  ["nerd",     "🤓 Nasal nerd",              [2, -20, 0, 104, 110, 0, 70]],
+  ["sleepy",   "😴 Sleepy / bored",          [-2, 10, 10, 82, 40, 0, 0]],
+  ["fast",     "⚡ Fast excited talker",     [2, -10, 0, 128, 150, 0, 0]],
+  ["",         "🎨 Cartoon & funny"],
+  ["mouse",    "🐭 Squeaky mouse",           [12, -150, 0, 110, 160, 0, 20]],
+  ["chipmunk", "🐿️ Chipmunk",               [10, -120, 0, 118, 140, 0, 0]],
+  ["helium",   "🎈 Helium balloon",          [2, -150, 0, 100, 110, 0, 0]],
+  ["baby",     "👶 Baby talk",               [9, -110, 0, 92, 190, 10, 0]],
+  ["alien",    "👽 Little alien",            [8, -130, 0, 100, 30, 25, 30]],
+  ["robot",    "🤖 Robot buddy",             [0, 0, 0, 100, 0, 0, 35]],
+  ["duck",     "🦆 Quacky duck",             [4, -80, 75, 105, 140, 0, 100]],
+  ["frog",     "🐸 Croaky frog",             [-7, 40, 90, 95, 100, 0, 30]],
+  ["clown",    "🤡 Silly clown",             [6, -75, 0, 108, 200, 20, 15]],
+  ["giant",    "👹 Goofy giant",             [-9, 150, 15, 85, 150, 0, 0]],
+  ["troll",    "🧌 Grumpy troll",            [-6, 110, 60, 92, 80, 0, 0]],
+  ["villain",  "🦹 Cartoon villain",         [-4, 60, 20, 92, 170, 0, 0]],
+  ["wizard",   "🧙 Old wizard",              [-2, 30, 45, 85, 120, 35, 0]],
+  ["teddy",    "🧸 Cuddly bear",             [-5, 90, 0, 92, 140, 0, 0]],
+  ["dizzy",    "🥴 Dizzy",                   [-1, 10, 10, 85, 160, 45, 0]],
+  ["scared",   "😱 Super scared",            [5, -30, 15, 115, 170, 70, 0]],
+  ["spooky",   "👻 Spooky wobble",           [-2, 20, 10, 92, 60, 60, 0]],
+  ["custom",   "✏️ My own mix (sliders)",   null],
 ];
-const VS = ["vpitch", "vsize", "vrough", "vtempo"];
+const VS = ["vpitch", "vsize", "vrough", "vtempo", "vmelody", "vwobble", "vnasal"];
 function voiceShape(sp) {
   const v = k => parseFloat($("s" + sp + k).value);
-  const semis = v("vpitch"), size = v("vsize"), rough = v("vrough"), tempo = v("vtempo");
-  const on = !!(semis || size || rough || tempo !== 100);
-  return { on, key: on ? [semis, size, rough, tempo].join(",") : "", pitch: 2 ** (semis / 12), size: 2 ** (-0.4 * size / 100), rough: rough / 100, tempo: tempo / 100 };
+  const semis = v("vpitch"), size = v("vsize"), rough = v("vrough"), tempo = v("vtempo"), melody = v("vmelody"), wobble = v("vwobble"), nasal = v("vnasal");
+  const on = !!(semis || size || rough || tempo !== 100 || melody !== 100 || wobble || nasal);
+  return {
+    on, key: on ? [semis, size, rough, tempo, melody, wobble, nasal].join(",") : "",
+    pitch: 2 ** (semis / 12), size: 2 ** (-0.4 * size / 100), rough: rough / 100, tempo: tempo / 100,
+    melody: melody / 100, wobble: wobble / 100, nasal: nasal / 100,
+  };
 }
 const shapeGen = { 1: 0, 2: 0 }, shapeTimer = {};
 // redo every line of this character (the one you'll hear first), then play it
@@ -2242,19 +2279,44 @@ function showShape(sp) {
   $("s" + sp + "vsizev").textContent = v("vsize") > 0 ? "+" + v("vsize") + " bigger" : v("vsize") < 0 ? v("vsize") + " smaller" : "0";
   $("s" + sp + "vroughv").textContent = v("vrough");
   $("s" + sp + "vtempov").textContent = v("vtempo");
+  const mel = +v("vmelody");
+  $("s" + sp + "vmelodyv").textContent = mel + "%" + (mel <= 20 ? " (flat robot)" : mel >= 170 ? " (cartoon)" : mel === 100 ? " (normal)" : "");
+  $("s" + sp + "vwobblev").textContent = v("vwobble");
+  $("s" + sp + "vnasalv").textContent = v("vnasal");
+}
+// a random funny voice: low and big, or high and small, with a little extra spice sometimes
+function randomShape(sp) {
+  const r = (a, b) => a + Math.random() * (b - a), pick = arr => arr[Math.floor(Math.random() * arr.length)];
+  const semis = Math.round(r(-9, 11) * 2) / 2;
+  const size = Math.max(-150, Math.min(150, Math.round((-semis * 11 + r(-40, 40)) / 5) * 5));
+  const vals = {
+    vpitch: semis, vsize: size,
+    vrough: pick([0, 0, 0, 20, 40, 70]), vtempo: Math.round(r(86, 122) / 2) * 2,
+    vmelody: Math.round(r(50, 210) / 5) * 5, vwobble: pick([0, 0, 0, 0, 25, 50]), vnasal: pick([0, 0, 0, 40, 80]),
+  };
+  for (const k of VS) $("s" + sp + k).value = vals[k];
+  $("s" + sp + "vtype").value = "custom";
 }
 function saveShape(sp) { lsSet("gvs_shape" + sp, JSON.stringify([$("s" + sp + "vtype").value, ...VS.map(k => $("s" + sp + k).value)])); }
 for (const sp of ["1", "2"]) {
   const sel = $("s" + sp + "vtype");
-  for (const [id, label] of VOICE_TYPES) { const o = document.createElement("option"); o.value = id; o.textContent = label; sel.appendChild(o); }
+  let group = null;
+  for (const [id, label] of VOICE_TYPES) {
+    if (!id) { group = document.createElement("optgroup"); group.label = label; sel.appendChild(group); continue; }
+    const o = document.createElement("option"); o.value = id; o.textContent = label;
+    (id === "orig" || id === "custom" ? sel : group || sel).appendChild(o);
+  }
   try {
     const saved = JSON.parse(lsGet("gvs_shape" + sp) || "null");
-    if (saved) { sel.value = saved[0]; VS.forEach((k, i) => ($("s" + sp + k).value = saved[i + 1])); }
+    if (saved) {
+      if (VOICE_TYPES.some(t => t[0] === saved[0])) sel.value = saved[0];
+      VS.forEach((k, i) => { if (saved[i + 1] !== undefined && saved[i + 1] !== null) $("s" + sp + k).value = saved[i + 1]; });
+    }
   } catch (e) {}
   showShape(sp);
   sel.addEventListener("change", () => {
     const t = VOICE_TYPES.find(x => x[0] === sel.value);
-    if (t && t[2] !== null) VS.forEach((k, i) => ($("s" + sp + k).value = t[i + 2]));
+    if (t && t[2]) VS.forEach((k, i) => ($("s" + sp + k).value = t[2][i]));
     showShape(sp); saveShape(sp);
     reshapeSpeaker(sp, true).catch(e => setStatus("err", e.message));
   });
@@ -2272,6 +2334,11 @@ for (const sp of ["1", "2"]) {
     playLineAudio(mine.find(d => d._buffer.duration >= 2) || mine[0]);
   };
   $("s" + sp + "vreset").onclick = () => { sel.value = "orig"; sel.dispatchEvent(new Event("change")); };
+  $("s" + sp + "vrandom").onclick = () => {
+    randomShape(sp);
+    showShape(sp); saveShape(sp);
+    reshapeSpeaker(sp, true).catch(e => setStatus("err", e.message));
+  };
 }
 
 function setLineState(div, kind, msg) {
@@ -2623,26 +2690,65 @@ function voicePulses(x, sr) {
   }
   return marks;
 }
+// one 2nd-order filter (RBJ cookbook), in place: "hp" high-pass, "lp" low-pass, "peak" boost/cut around f
+function biquadInPlace(d, sr, type, f, q, gainDb = 0) {
+  const w = 2 * Math.PI * Math.min(f, sr * 0.45) / sr, cs = Math.cos(w), al = Math.sin(w) / (2 * q), A = 10 ** (gainDb / 40);
+  let b0, b1, b2, a0, a1, a2;
+  if (type === "hp") { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = b0; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al; }
+  else if (type === "lp") { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = b0; a0 = 1 + al; a1 = -2 * cs; a2 = 1 - al; }
+  else { b0 = 1 + al * A; b1 = -2 * cs; b2 = 1 - al * A; a0 = 1 + al / A; a1 = -2 * cs; a2 = 1 - al / A; }
+  let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
+  for (let i = 0; i < d.length; i++) {
+    const x0 = d[i], y0 = (b0 * x0 + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0;
+    x2 = x1; x1 = x0; y2 = y1; y1 = y0; d[i] = y0;
+  }
+}
 // pitch: ×factor (keeps speed) · size: formant factor (<1 bigger/deeper body, >1 smaller) · rough 0..1 · tempo: ×speed
-function reshapeVoice(buffer, { pitch = 1, size = 1, rough = 0, tempo = 1 } = {}) {
-  if (Math.abs(pitch - 1) < 0.005 && Math.abs(size - 1) < 0.005 && rough < 0.005 && Math.abs(tempo - 1) < 0.005) return buffer;
+// melody: ups & downs of the voice (0 flat robot, 1 as recorded, 2 sing-song cartoon) · wobble 0..1 shaky · nasal 0..1
+function reshapeVoice(buffer, { pitch = 1, size = 1, rough = 0, tempo = 1, melody = 1, wobble = 0, nasal = 0 } = {}) {
+  if (Math.abs(pitch - 1) < 0.005 && Math.abs(size - 1) < 0.005 && rough < 0.005 && Math.abs(tempo - 1) < 0.005 &&
+      Math.abs(melody - 1) < 0.01 && wobble < 0.005 && nasal < 0.005) return buffer;
   const sr = buffer.sampleRate, x = buffer.getChannelData(0), n = x.length;
   const marks = voicePulses(x, sr);
   if (!marks.length) return buffer;
+  // the line's middle note, and a smoothed pitch line per pulse: melody stretches or flattens it around that note
+  const f0s = marks.filter(q => q[2]).map(q => sr / q[1]).sort((a, b) => a - b);
+  const f0ref = f0s.length ? f0s[f0s.length >> 1] : 0;
+  const sf = new Float32Array(marks.length);
+  for (let i = 0; i < marks.length; i++) {
+    if (!marks[i][2]) continue;
+    let s = 0, c = 0;
+    for (let k = i; k >= Math.max(0, i - 4) && marks[k][2]; k--) { s += sr / marks[k][1]; c++; }
+    for (let k = i + 1; k <= Math.min(marks.length - 1, i + 4) && marks[k][2]; k++) { s += sr / marks[k][1]; c++; }
+    sf[i] = s / c;
+  }
   const outLen = Math.max(1, Math.floor(n / tempo));
   const out = new Float32Array(outLen), wsum = new Float32Array(outLen);
   let seed = 12345;
   const rnd = () => ((seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff) * 2 - 1;
   // with no change this lays every grain back exactly where it came from (a perfect copy)
-  let j = 0, ts = marks[0][0] / tempo, g = 1;
+  let j = 0, ts = marks[0][0] / tempo;
   while (ts < outLen) {
     const tin = ts * tempo;
     while (j + 1 < marks.length && Math.abs(marks[j + 1][0] - tin) <= Math.abs(marks[j][0] - tin)) j++;
     const [m, P, voiced] = marks[j];
-    const L = Math.max(8, Math.round(P / size)); // grain half-length after squeezing/stretching
+    // next grain: one (new) period later; at the end of a voiced stretch, snap back to the marks
+    const toNext = j + 1 < marks.length ? marks[j + 1][0] - m : P; // real distance to the next pulse
+    const inVoice = voiced && j + 1 < marks.length && marks[j + 1][2];
+    let step = toNext / tempo;
+    if (inVoice) {
+      let pf = pitch;
+      if (f0ref && Math.abs(melody - 1) >= 0.01) pf *= Math.pow(sf[j] / f0ref, melody - 1);
+      if (wobble) pf *= 2 ** (wobble * 1.5 * Math.sin(2 * Math.PI * 5.5 * ts / sr) / 12); // ~5.5 shakes a second
+      pf = Math.min(3, Math.max(0.33, pf));
+      step = (toNext / pf) * (1 + rough * 0.06 * rnd()); // jitter: uneven pulses = raspy
+    }
+    step = Math.max(4, step);
+    // grain half-length after squeezing/stretching (never so short that grains leave gaps)
+    const L = Math.max(8, Math.round(voiced ? Math.max(P / size, 0.6 * step) : P / size));
     const c = Math.round(ts + (m - tin) / tempo * (voiced ? 0 : 1)); // unvoiced grains stay in place
-    if (voiced) g = 1 + rough * 0.3 * rnd(); // shimmer: loudness wobble per pulse
-    const gain = voiced ? g : 1;
+    let gain = 1;
+    if (voiced) gain = (1 + rough * 0.3 * rnd()) * (1 + wobble * 0.12 * Math.sin(2 * Math.PI * 5.5 * ts / sr)); // shimmer + tremble
     for (let k = -L; k <= L; k++) {
       const o = c + k;
       if (o < 0 || o >= outLen) continue;
@@ -2654,20 +2760,28 @@ function reshapeVoice(buffer, { pitch = 1, size = 1, rough = 0, tempo = 1 } = {}
       out[o] += gain * w * v;
       wsum[o] += w;
     }
-    // next grain: one (new) period later; at the end of a voiced stretch, snap back to the marks
-    const toNext = j + 1 < marks.length ? marks[j + 1][0] - m : P; // real distance to the next pulse
-    let step = voiced && j + 1 < marks.length && marks[j + 1][2] ? (toNext / pitch) * (1 + rough * 0.06 * rnd()) : toNext / tempo; // jitter: uneven pulses = raspy
-    ts += Math.max(4, step);
+    ts += step;
   }
   const res = audioCtx.createBuffer(1, outLen, sr), d = res.getChannelData(0);
   for (let i = 0; i < outLen; i++) d[i] = out[i] / Math.max(wsum[i], 0.25);
   if (rough > 0) { const dr = 1 + rough; for (let i = 0; i < outLen; i++) d[i] = Math.tanh(d[i] * dr) / dr; } // a little grit on the peaks
+  if (nasal > 0) { // talking through the nose: thin lows, a honk around 1 kHz, duller top
+    biquadInPlace(d, sr, "hp", 100 + 400 * nasal, 0.7);
+    biquadInPlace(d, sr, "peak", 420, 1, -8 * nasal);
+    biquadInPlace(d, sr, "peak", 1100, 2, 16 * nasal);
+    biquadInPlace(d, sr, "lp", 8000 - 4000 * nasal, 0.7);
+  }
   // same loudness as before, never clipping
   let ei = 0, eo = 0, pk = 0;
   for (let i = 0; i < n; i++) ei += x[i] * x[i];
   for (let i = 0; i < outLen; i++) { eo += d[i] * d[i]; pk = Math.max(pk, Math.abs(d[i])); }
-  const gain = Math.min(Math.sqrt((ei / n) / ((eo / outLen) || 1e-12)), 0.98 / (pk || 1));
-  for (let i = 0; i < outLen; i++) d[i] *= gain;
+  const gain = Math.sqrt((ei / n) / ((eo / outLen) || 1e-12));
+  for (let i = 0; i < outLen; i++) {
+    let v = d[i] * gain;
+    const av = Math.abs(v);
+    if (av > 0.7) v = Math.sign(v) * (0.7 + 0.28 * Math.tanh((av - 0.7) / 0.28)); // soft ceiling instead of turning everything down
+    d[i] = v;
+  }
   return res;
 }
 
