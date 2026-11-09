@@ -138,7 +138,7 @@
 <div class="wrap">
   <h1>🎙️ Game Voice <span class="em">Studio</span></h1>
   <p class="sub">Free expressive AI voices → change to robot / ghost / kid / man / woman → download MP3 for your game. Works with English and Arabic text.
-    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">9 Nov – E</b></span></p>
+    <span style="opacity:.7;white-space:nowrap;">· Version: <b id="appVersion">9 Nov – F</b></span></p>
 
   <!-- ============ API KEY ============ -->
   <div class="card">
@@ -2750,17 +2750,35 @@ function reshapeVoice(buffer, { pitch = 1, size = 1, rough = 0, tempo = 1, melod
   const sr = buffer.sampleRate, x = buffer.getChannelData(0), n = x.length;
   const marks = voicePulses(x, sr);
   if (!marks.length) return buffer;
-  // the line's middle note, and a smoothed pitch line per pulse: melody stretches or flattens it around that note
-  const f0s = marks.filter(q => q[2]).map(q => sr / q[1]).sort((a, b) => a - b);
-  const f0ref = f0s.length ? f0s[f0s.length >> 1] : 0;
-  const sf = new Float32Array(marks.length);
-  for (let i = 0; i < marks.length; i++) {
-    if (!marks[i][2]) continue;
+  // pitch line per pulse (log scale): "loc" = the syllable-level ups & downs (±4 pulses), "trend" = the slow
+  // drift over ~1 s (a long sentence sinks toward its end). Melody stretches the ups & downs AROUND the trend,
+  // so a cartoon voice keeps its height all through a long line instead of sinking back to the original.
+  const vm = [];
+  for (let i = 0; i < marks.length; i++) if (marks[i][2]) vm.push(i);
+  const lf0 = new Float32Array(marks.length), loc = new Float32Array(marks.length), trend = new Float32Array(marks.length);
+  for (const i of vm) lf0[i] = Math.log(sr / marks[i][1]);
+  for (const i of vm) {
     let s = 0, c = 0;
-    for (let k = i; k >= Math.max(0, i - 4) && marks[k][2]; k--) { s += sr / marks[k][1]; c++; }
-    for (let k = i + 1; k <= Math.min(marks.length - 1, i + 4) && marks[k][2]; k++) { s += sr / marks[k][1]; c++; }
-    sf[i] = s / c;
+    for (let k = i; k >= Math.max(0, i - 4) && marks[k][2]; k--) { s += lf0[k]; c++; }
+    for (let k = i + 1; k <= Math.min(marks.length - 1, i + 4) && marks[k][2]; k++) { s += lf0[k]; c++; }
+    loc[i] = s / c;
   }
+  { // sliding ±0.5 s window over voiced pulses
+    let lo = 0, hi = 0, s = 0;
+    const W = 0.5 * sr;
+    for (let q = 0; q < vm.length; q++) {
+      const pos = marks[vm[q]][0];
+      while (hi < vm.length && marks[vm[hi]][0] <= pos + W) s += lf0[vm[hi++]];
+      while (marks[vm[lo]][0] < pos - W) s -= lf0[vm[lo++]];
+      trend[vm[q]] = s / (hi - lo);
+    }
+  }
+  const sortedL = vm.map(i => lf0[i]).sort((p, q) => p - q);
+  const lref = sortedL.length ? sortedL[sortedL.length >> 1] : 0; // the line's middle note
+  const flatten = Math.min(1, melody); // below 100% the slow drift is flattened too (0 = one flat robot note)
+  // stretched ups & downs: up to +5 semitones, but dips only to -2 (a dip stretched twice as deep drops a
+  // cartoon voice right back to the original voice — that's when it "loses it" late in a sentence)
+  const swingUp = Math.log(2) * 5 / 12, swingDown = melody > 1 ? Math.log(2) * 2 / 12 : Math.log(2) * 5 / 12;
   const outLen = Math.max(1, Math.floor(n / tempo));
   const out = new Float32Array(outLen), wsum = new Float32Array(outLen);
   let seed = 12345;
@@ -2777,7 +2795,10 @@ function reshapeVoice(buffer, { pitch = 1, size = 1, rough = 0, tempo = 1, melod
     let step = toNext / tempo;
     if (inVoice) {
       let pf = pitch;
-      if (f0ref && Math.abs(melody - 1) >= 0.01) pf *= Math.pow(sf[j] / f0ref, melody - 1);
+      if (Math.abs(melody - 1) >= 0.01 && vm.length) {
+        const swing = Math.max(-swingDown, Math.min(swingUp, (melody - 1) * (loc[j] - trend[j])));
+        pf *= Math.exp((flatten - 1) * (trend[j] - lref) + swing);
+      }
       if (wobble) pf *= 2 ** (wobble * 1.5 * Math.sin(2 * Math.PI * wrate * ts / sr) / 12); // shakes a second
       pf = Math.min(3, Math.max(0.33, pf));
       step = (toNext / pf) * (1 + rough * 0.06 * rnd()); // jitter: uneven pulses = raspy
